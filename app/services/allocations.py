@@ -15,7 +15,7 @@ from app.models.ta import Ta
 from app.models.ta_experience import TaExperience
 from app.services.allocation_auth import get_user
 from app.services.constants import WEEKLY_HOUR_CAP
-from app.services.strategies import MODES, auto_select_ta
+from app.services.strategies import MODES, auto_select_ta, get_strategy
 
 _RR_CURSOR = 0
 
@@ -142,9 +142,10 @@ def assign_auto(
     user = get_user(hod_id)
     if not user or user["role"] != "hod":
         return {"ok": False, "error": "hod only"}
-    if mode not in MODES:
-        # still call strategy — demonstrates fallback defect
-        pass
+    try:
+        get_strategy(mode)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
 
     with Session(engine) as session:
         course_row = session.get(Course, course_id)
