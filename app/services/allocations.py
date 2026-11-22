@@ -17,7 +17,7 @@ from app.services.allocation_auth import get_user
 #recently edited
 from app.services.capacity_guard import CapacityGuard
 from app.services.constants import WEEKLY_HOUR_CAP
-from app.services.strategies import MODES, auto_select_ta, get_strategy
+from app.services.strategies import MODES, get_strategy
 
 _RR_CURSOR = 0
 
@@ -186,20 +186,25 @@ def assign_auto(
         if not eligible_tas:
             return {"ok": False, "error": "no TAs have sufficient weekly capacity"}
 
-        pick = auto_select_ta(
-            mode=mode,
-            course=course,
-            tas=eligible_tas,
-            experience=exp,
+        strategy = get_strategy(mode)
+        ranked_tas = strategy.rank(
+            eligible_tas,
+            course_id=course_id,
+            experience_pairs=exp,
             load_by_ta=load,
-            budget_remaining=budget,
-            hours=weekly_hours,
-            round_robin_cursor=_RR_CURSOR,
         )
-        if not pick.get("ok"):
-            return pick
+        if not ranked_tas:
+            return {"ok": False, "error": "no eligible TAs"}
 
-        ta_id = int(pick["ta_id"])
+        if mode == "round_robin":
+            cursor = _RR_CURSOR % len(ranked_tas)
+            selected_ta = ranked_tas[cursor]
+            next_cursor = cursor + 1
+        else:
+            selected_ta = ranked_tas[0]
+            next_cursor = None
+
+        ta_id = int(selected_ta["id"])
         current_load = load.get(ta_id, 0)
         try:
             CapacityGuard.validate_ta(current_load=current_load, hours=weekly_hours)
@@ -224,8 +229,23 @@ def assign_auto(
 
         assignment = row.model_dump()
 
-    if "next_cursor" in pick:
-        _RR_CURSOR = int(pick["next_cursor"])
+    if next_cursor is not None:
+        _RR_CURSOR = next_cursor
+
+    pick = {
+        "ok": True,
+        "ta_id": ta_id,
+        "mode": mode,
+        "reason": (
+            "prior course experience"
+            if (ta_id, course_id) in exp
+            else "eligible candidate"
+        ),
+        "projected_load": current_load + weekly_hours,
+        "cap": WEEKLY_HOUR_CAP,
+    }
+    if next_cursor is not None:
+        pick["next_cursor"] = next_cursor
 
     return {
         "ok": True,

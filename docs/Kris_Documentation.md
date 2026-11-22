@@ -163,16 +163,16 @@ ordering deterministic and testable.
 
 ## 7. Supported and Unsupported Modes
 
-The supported Strategy modes are initially:
+The supported Strategy modes in the final merged implementation are:
 
 ```text
 experience_first
 least_loaded
+round_robin
 ```
 
-`round_robin` exists in the flawed starter implementation, but it is not
-included in Kris's required Strategy design unless the team explicitly
-implements and tests it. This is an assumption under independent development.
+`round_robin` was present in the flawed starter implementation and has now
+been implemented as a `RoundRobinStrategy` after the teammate merge.
 
 Any unsupported mode must raise an explicit error. It must not silently select
 a first candidate or a default Strategy.
@@ -301,8 +301,8 @@ The following assumptions are in effect during independent development:
 5. Experience-first does not exclude inexperienced candidates.
 6. Least-loaded ignores experience.
 7. Lower TA ID is the deterministic tie-break.
-8. `experience_first` and `least_loaded` are the only required modes for Kris's
-   part.
+8. `experience_first`, `least_loaded`, and `round_robin` are the registered
+   modes in the merged implementation.
 9. The allocation service will resolve a Strategy through `get_strategy()`.
 10. Existing dictionary and function names may remain temporarily, but final
     integration should move selection away from nested mode conditionals.
@@ -325,11 +325,12 @@ The `get_strategy(mode)` resolver is the only central mode-to-Strategy lookup.
 The allocation service should not contain `if/elif` statements for
 `experience_first`, `least_loaded`, or other ranking modes.
 
-The two supported mode values are:
+The three supported mode values are:
 
 ```text
 experience_first
 least_loaded
+round_robin
 ```
 
 An unsupported mode raises `ValueError`:
@@ -404,12 +405,9 @@ The permanent integration must keep hard constraints outside `rank()`:
 - `rank()` uses only eligible candidates and ranking preference data.
 - Ranking must never mutate the candidate list or assignment database.
 
-The temporary `auto_select_ta()` compatibility wrapper in
-`app/services/strategies.py` currently applies extra starter-service checks
-because it still bridges the pre-Strategy implementation. It must be removed
-or stopped from owning eligibility once Cameron and Jordan complete their
-integration. Cameron should call `get_strategy(mode).rank(...)` directly in the
-final allocation service.
+The temporary `auto_select_ta()` compatibility wrapper has been removed.
+Cameron now calls `get_strategy(mode).rank(...)` directly after Cameron and
+Jordan complete eligibility and budget validation.
 
 ### 12.6 Integration handoff decision
 
@@ -445,17 +443,10 @@ queries or eligibility logic as a workaround.
 
 ## 13. Duplicate Logic Review
 
-The active `assign_auto()` path previously contained no separate ranking
-algorithm, but used a compatibility `auto_select_ta()` function and a no-op
-unknown-mode block.
-
-The no-op block has been replaced with `get_strategy(mode)` validation.
-The compatibility wrapper is temporary and delegates its candidate ordering to
-the registered Strategy classes.
-
-Final integration should remove `auto_select_ta()` and ensure the service
-passes the already eligible candidate list directly to
-`get_strategy(mode).rank(...)`.
+The active `assign_auto()` path validates unknown modes through
+`get_strategy(mode)` and passes already eligible candidates directly to
+`strategy.rank(...)`. It does not contain separate experience-first or
+least-loaded ranking conditionals.
 
 ## 14. Phase 2 Completion Criteria
 
@@ -522,3 +513,392 @@ Run:
 python -m pytest tests/test_strategies.py -v
 python -m pytest tests -v
 ```
+
+## Teammates implementation
+
+The teammate branches have now been merged into
+`feature/12-ranking-strategies`. Their implementations change the temporary
+integration assumptions below in the following concrete ways.
+
+### 1. Jordan — CapacityGuard implementation
+
+Jordan implemented
+[app/services/capacity_guard.py](/Users/User/Open-Ai-Developers/app/services/capacity_guard.py)
+as a static `CapacityGuard` class.
+
+The implemented interface is:
+
+```python
+CapacityGuard.validate_request(
+    hours,
+    budget_remaining,
+) -> None
+
+CapacityGuard.validate_ta(
+    current_load,
+    hours,
+) -> None
+
+CapacityGuard.eligible_candidates(
+    tas,
+    load_by_ta,
+    hours,
+) -> list[dict[str, Any]]
+```
+
+#### Request validation
+
+`validate_request()` owns two request-level hard rules:
+
+- hours must be positive;
+- requested hours must not exceed department budget.
+
+These checks use the `Department.budget_hours_remaining` value. Invalid
+requests raise `ValueError` with one of these messages:
+
+```text
+hours must be positive
+exceeds department budget
+```
+
+#### TA capacity validation
+
+`validate_ta()` enforces the 20-hour weekly TA cap:
+
+```text
+current_load + requested_hours <= 20
+```
+
+It raises:
+
+```text
+exceeds TA weekly hour cap
+```
+
+#### Candidate eligibility
+
+`eligible_candidates()` is the candidate filter used before ranking. It keeps
+only TAs for which:
+
+```text
+current workload + requested hours <= 20
+```
+
+This preserves the intended separation:
+
+- Jordan determines eligibility and hard capacity/budget rules.
+- Kris ranks only candidates returned by `eligible_candidates()`.
+- Cameron connects the workflow and persistence.
+
+Candidate dictionaries remain compatible with the original Kris contract:
+`ta["id"]` is the TA identifier and `load_by_ta[ta_id]` is the weekly workload.
+
+### 2. Cameron — allocation integration and persistence
+
+Cameron's implementation remains in
+[app/services/allocations.py](/Users/User/Open-Ai-Developers/app/services/allocations.py).
+Manual and automatic allocation now use the same hard-rule components.
+
+#### Manual allocation integration
+
+`assign_manual()` now:
+
+1. verifies the actor is an HOD;
+2. verifies positive requested hours;
+3. loads the TA, course, workload, and department budget;
+4. calls `CapacityGuard.validate_request()`;
+5. calls `CapacityGuard.validate_ta()`;
+6. only then creates and persists the assignment;
+7. deducts the requested hours from department budget;
+8. returns `over_cap=False` and `over_budget=False` after validation succeeds.
+
+Manual allocations no longer persist over-cap or over-budget assignments.
+
+#### Automatic allocation integration
+
+The automatic workflow implemented by `assign_auto()` is:
+
+```text
+1. Verify the actor is an HOD.
+2. Validate that requested hours are positive.
+3. Resolve get_strategy(mode); reject unknown modes immediately.
+4. Load the course.
+5. Load department budget.
+6. Call CapacityGuard.validate_request(hours, budget_remaining).
+7. Load all TAs.
+8. Load prior TA/course experience pairs.
+9. Load current weekly workload.
+10. Call CapacityGuard.eligible_candidates(...).
+11. Return an error if no eligible candidates exist.
+12. Call get_strategy(mode).rank(...) with eligible candidates.
+13. Revalidate the selected TA with CapacityGuard.validate_ta(...).
+14. Persist Assignment and deduct department budget.
+15. Roll back both changes if persistence fails.
+```
+
+This implementation preserves hard rules outside the Strategy `rank()` methods.
+
+#### Strategy resolver integration
+
+`assign_auto()` calls `get_strategy(mode)` before database candidate filtering.
+Unknown modes now raise `ValueError` inside the resolver and are converted to
+the allocation service error payload:
+
+```text
+Unsupported allocation mode: <mode>. Supported modes: experience_first, least_loaded, round_robin
+```
+
+This validation prevents unknown modes from reaching selection or persistence.
+
+#### Persistence behavior
+
+Successful automatic allocation:
+
+- creates an `Assignment`;
+- deducts `weekly_hours` from department budget;
+- commits assignment and budget together;
+- returns the persisted assignment and auto-selection details.
+
+If `Session.commit()` fails, the service calls `session.rollback()` and returns:
+
+```text
+allocation could not be persisted
+```
+
+No assignment or budget change remains after this rollback path.
+
+### 3. Round-robin mode decision
+
+Round-robin is now part of the merged implementation and is a real registered
+Strategy.
+
+The implementation is
+`RoundRobinStrategy` in
+[app/services/strategies.py](/Users/User/Open-Ai-Developers/app/services/strategies.py).
+It ranks eligible candidates in their existing stable order and ignores course,
+experience, and workload ranking data.
+
+The registry is now:
+
+```python
+STRATEGIES = {
+    "experience_first": ExperienceFirstStrategy(),
+    "least_loaded": LeastLoadedStrategy(),
+    "round_robin": RoundRobinStrategy(),
+}
+```
+
+The public modes are therefore:
+
+```text
+experience_first
+least_loaded
+round_robin
+```
+
+Round-robin cursor behavior remains in `assign_auto()` with `_RR_CURSOR`.
+The allocation service ranks the eligible candidates through
+`get_strategy(mode).rank(...)`, then uses `_RR_CURSOR` to select a candidate
+for round-robin. The Strategy does not implement cursor state or hard
+capacity/budget validation.
+
+### 4. Final Strategy integration and cleanup
+
+The temporary `auto_select_ta()` wrapper has been removed. The merged
+allocation service now calls `get_strategy(mode).rank(...)` directly after
+`CapacityGuard` has:
+
+- validated hours and department budget;
+- filtered out TAs that cannot accept the requested hours.
+
+The direct selection pattern is:
+
+```python
+strategy = get_strategy(mode)
+
+ranked_tas = strategy.rank(
+    eligible_tas,
+    course_id=course_id,
+    experience_pairs=exp,
+    load_by_ta=load,
+)
+
+if not ranked_tas:
+    return {"ok": False, "error": "no eligible TAs"}
+
+selected_ta = ranked_tas[0]
+```
+
+Round-robin retains cursor state in `assign_auto()` with
+`_RR_CURSOR`, selecting `ranked_tas[_RR_CURSOR % len(ranked_tas)]`.
+Other policies select `ranked_tas[0]`.
+
+Hard eligibility and budget checks remain in `CapacityGuard` and
+`assign_auto()`, not in ranking methods.
+
+### 5. Candidate and workload contract changes
+
+No teammate merge changed the candidate representation:
+
+```python
+list[dict[str, Any]]
+```
+
+Candidate ID access remains `ta["id"]`. The implementation still supplies:
+
+- `course_id`;
+- `experience_pairs` as `set[tuple[int, int]]`;
+- `load_by_ta` as `dict[int, int]`;
+- only Jordan-filtered candidates for ranked allocation.
+
+Therefore, all existing Kris strategy tests remain valid. The ranking
+functions do not need SQLModel or database changes for the merged state.
+
+### 6. Integrated test coverage
+
+The teammate merge added
+[tests/test_auto_allocation.py](/Users/User/Open-Ai-Developers/tests/test_auto_allocation.py)
+and expanded
+[tests/test_scenario.py](/Users/User/Open-Ai-Developers/tests/test_scenario.py).
+The coverage now verifies:
+
+- 18 + 2 hours is allowed;
+- 18 + 3 hours rejects the overloaded TA;
+- non-positive hours change no database state;
+- unknown modes change no database state;
+- insufficient budget changes no database state;
+- no eligible candidate changes no database state;
+- success persists the assignment and deducts budget;
+- persistence failures roll back assignment and budget;
+- request validation occurs before candidate filtering;
+- the selected TA is revalidated before persistence;
+- round-robin excludes over-capacity TAs.
+
+The complete suite passed after the merges:
+
+```text
+45 passed
+```
+
+This confirms that the merged implementation satisfies the public allocation
+requirements and no Strategy unit or teammate integration test regressed.
+
+## 16. Phase 6 — Teammate Integration Completion
+
+Phase 6 is complete for the current merged implementation.
+
+### 16.1 Integration validation
+
+- Jordan's `CapacityGuard` is available and integrated.
+- Cameron's allocation service uses the registered Strategy resolver.
+- Experience-first, least-loaded, and round-robin modes are available.
+- Unknown modes fail before candidate ranking or persistence.
+- The selected TA is revalidated immediately before persistence.
+- Insufficient department budget prevents assignment creation.
+- No eligible candidate prevents assignment creation.
+- Persistence failures roll back assignment and budget changes.
+
+### 16.2 Cleanup performed
+
+The temporary `auto_select_ta()` compatibility wrapper has been removed.
+`assign_auto()` now:
+
+1. calls `get_strategy(mode)`;
+2. obtains a ranked candidate list by calling `strategy.rank(...)`;
+3. applies round-robin cursor selection when needed;
+4. selects `ranked_tas[0]` for experience-first and least-loaded;
+5. revalidates the selected TA with `CapacityGuard`;
+6. persists the assignment and deducts budget.
+
+Eligibility and budget validation are not implemented inside Strategy ranking
+classes. The old starter mode-switch and the compatibility wrapper are no
+longer present in the active integration path.
+
+### 16.3 Round-robin unit coverage
+
+[tests/test_strategies.py](/Users/User/Open-Ai-Developers/tests/test_strategies.py)
+now verifies:
+
+- round-robin preserves the existing candidate order;
+- round-robin ranking does not mutate the original candidate list;
+- `get_strategy("round_robin")` returns `RoundRobinStrategy`.
+
+### 16.4 Validation results
+
+After the cleanup:
+
+```text
+Strategy unit tests: 15 passed
+Allocation and API integration tests: 26 passed
+```
+
+The complete suite should be run once more before Phase 7 pull-request
+finalization.
+
+### 16.5 Phase 6 completion gate
+
+- [x] Jordan's `CapacityGuard` is available.
+- [x] Cameron's allocation integration is available.
+- [x] The service calls Kris's Strategy resolver.
+- [x] Experience-first integration is verified.
+- [x] Least-loaded integration is verified.
+- [x] Round-robin integration is verified.
+- [x] Unsupported modes are rejected.
+- [x] No eligible candidates produce no assignment.
+- [x] Insufficient budget produces no assignment.
+- [x] Capacity violations do not persist.
+- [x] Teammate integration tests pass.
+
+## 17. Phase 7 — Pull Request Preparation
+
+### 17.1 Final implementation
+
+The pull request contains:
+
+- `RankingStrategy` abstraction;
+- `ExperienceFirstStrategy`;
+- `LeastLoadedStrategy`;
+- `RoundRobinStrategy`;
+- centralized `STRATEGIES` registry and `get_strategy()` resolver;
+- direct Strategy ranking in `assign_auto()`;
+- round-robin cursor handling in the allocation service;
+- unit tests for ranking and round-robin behavior;
+- integration and handoff evidence in this document.
+
+`app/services/strategies.py` contains no database queries, assignment
+persistence, HOD validation, budget validation, or 20-hour eligibility logic.
+
+### 17.2 Final validation
+
+Before creating or merging the pull request:
+
+```powershell
+python -m pytest tests/test_strategies.py -v
+python -m pytest tests -q
+git diff --check
+```
+
+Final validation for the completed integration:
+
+```text
+Strategy unit tests: 15 passed
+Allocation and API integration tests: 26 passed
+Complete suite: 48 passed
+```
+
+The remaining FastAPI and Starlette warnings are deprecation warnings, not
+test failures.
+
+### 17.3 Pull request checklist
+
+- [x] Teammate branches merged locally.
+- [x] Compatibility wrapper removed.
+- [x] Round-robin unit coverage added.
+- [ ] Diff reviewed for unrelated changes.
+- [ ] Final documentation staged.
+- [ ] Commit created and pushed.
+- [ ] Pull request created for `feature/12-ranking-strategies` to `main`.
+- [ ] Teammate review requested.
+- [ ] Review comments resolved.
+- [ ] Pull request merged.
+- [ ] Merged `main` tested.
