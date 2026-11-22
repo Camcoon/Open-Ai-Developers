@@ -1,5 +1,6 @@
 """Shallow scenario smoke tests — intentionally weak."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -32,8 +33,6 @@ def test_login_hod():
     assert "password_hash" not in r.json()["user"]
 
 
-<<<<<<< Updated upstream
-=======
 #recently edited
 def test_openapi_docs_are_admin_only():
     assert client.get("/docs").status_code == 401
@@ -74,15 +73,12 @@ def test_openapi_docs_are_admin_only():
 
 
 #recently edited
->>>>>>> Stashed changes
 def test_review_board():
     r = client.get("/api/review")
     assert r.status_code == 200
     board = r.json()
     assert "tas" in board
     assert "assignments" in r.json()
-<<<<<<< Updated upstream
-=======
     board_ta = next(ta for ta in board["tas"] if ta["id"] == 1)
     candidate_ta = next(
         ta
@@ -154,4 +150,3 @@ def test_auto_selects_only_tas_with_capacity():
     assignment = response.json()["assignment"]
     assert assignment["ta_id"] != 1
     assert assignment["weekly_hours"] == 3
->>>>>>> Stashed changes

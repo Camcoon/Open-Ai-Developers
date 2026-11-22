@@ -1,8 +1,8 @@
 import pytest
-from sqlmodel import SQLModel, Session, create_engine
 from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
 
-import app.models
+import app.models  # noqa: F401
 
 
 @pytest.fixture
@@ -16,3 +16,9 @@ def test_session():
     with Session(engine) as session:
         yield session
     SQLModel.metadata.drop_all(engine)
+
+
+#recently edited
+@pytest.fixture
+def db_session(test_session):
+    return test_session

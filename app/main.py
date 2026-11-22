@@ -3,11 +3,13 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request, status
+from fastapi.openapi.docs import get_swagger_ui_html
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
 
 from app.config import get_settings
+from app.dependencies.auth import AdminDep
 from app.routers import api_router, router, static_files, templates
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
     middleware=[
         Middleware(SessionMiddleware, secret_key=get_settings().secret_key)
     ],
@@ -32,6 +37,20 @@ app = FastAPI(
 app.include_router(router)
 app.include_router(api_router)
 app.mount("/static", static_files, name="static")
+
+
+#recently edited
+@app.get("/docs", include_in_schema=False)
+async def admin_docs(_: AdminDep):
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title=f"{app.title} - Swagger UI",
+    )
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def admin_openapi(_: AdminDep):
+    return app.openapi()
 
 
 @app.middleware("http")
@@ -59,11 +78,13 @@ async def health():
     return {"ok": True, "status": "ok", "scenario": "ta-allocations", "version": "0.2.0"}
 
 
+#recently edited
 @app.exception_handler(status.HTTP_401_UNAUTHORIZED)
 async def unauthorized_redirect_handler(request: Request, exc: Exception):
     return templates.TemplateResponse(
         request=request,
         name="401.html",
+        status_code=status.HTTP_401_UNAUTHORIZED,
     )
 
 

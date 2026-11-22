@@ -54,6 +54,8 @@ def cmd_seed(args: argparse.Namespace) -> None:
     seed(reset=False)
     print("Seed done — HOD, TAs, courses, experience, and department budget.")
     print("API login: hod@example.com / hod-dev")
+    #recently edited
+    print("Admin login: admin / admin (change this password outside development)")
 
 
 def cmd_run(args: argparse.Namespace) -> None:

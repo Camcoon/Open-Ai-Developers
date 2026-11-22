@@ -6,7 +6,10 @@
     <a class="brand-wordmark" href="{{ url_for('index_view') }}">LoadBoard</a>
     <nav class="app-topnav" aria-label="App">
       <a class="{{ 'is-active' if request.url.path.startswith('/app') }}" href="{{ url_for('user_home_view') }}">Home</a>
+      {# #recently edited #}
+      {% if user and user.role == "admin" %}
       <a href="/docs">API docs</a>
+      {% endif %}
       <a href="{{ url_for('logout') }}">Sign out</a>
       <span>{{ user.username }}</span>
     </nav>
