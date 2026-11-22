@@ -1,5 +1,6 @@
 """Shallow scenario smoke tests — intentionally weak."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -32,8 +33,110 @@ def test_login_hod():
     assert "password_hash" not in r.json()["user"]
 
 
+#recently edited
+def test_openapi_docs_are_admin_only():
+    assert client.get("/docs").status_code == 401
+    assert client.get("/openapi.json").status_code == 401
+
+    hod_login = client.post(
+        "/login",
+        data={"username": "hod", "password": "hod-dev"},
+        follow_redirects=False,
+    )
+    hod_cookie = hod_login.cookies.get("access_token")
+    assert hod_cookie
+    hod_home = client.get("/app", cookies={"access_token": hod_cookie})
+    assert hod_home.status_code == 200
+    assert 'href="/docs"' not in hod_home.text
+    assert client.get("/docs", cookies={"access_token": hod_cookie}).status_code == 401
+    assert (
+        client.get("/openapi.json", cookies={"access_token": hod_cookie}).status_code
+        == 401
+    )
+
+    admin_login = client.post(
+        "/login",
+        data={"username": "admin", "password": "admin"},
+        follow_redirects=False,
+    )
+    admin_cookie = admin_login.cookies.get("access_token")
+    assert admin_cookie
+    admin_home = client.get("/admin", cookies={"access_token": admin_cookie})
+    assert admin_home.status_code == 200
+    assert 'href="/docs"' in admin_home.text
+    docs = client.get("/docs", cookies={"access_token": admin_cookie})
+    schema = client.get("/openapi.json", cookies={"access_token": admin_cookie})
+    assert docs.status_code == 200
+    assert "/openapi.json" in docs.text
+    assert schema.status_code == 200
+    assert "/api/review" in schema.json()["paths"]
+
+
 def test_review_board():
     r = client.get("/api/review")
     assert r.status_code == 200
     assert "tas" in r.json()
     assert "assignments" in r.json()
+
+
+#recently edited
+def _hod_user_id() -> int:
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "hod@example.com", "password": "hod-dev"},
+    )
+    assert response.status_code == 200
+    return response.json()["user"]["id"]
+
+
+def test_auto_validates_request_before_finding_candidates(monkeypatch):
+    def fail_if_candidates_are_checked(*args, **kwargs):
+        pytest.fail("candidate filtering ran before request validation")
+
+    monkeypatch.setattr(
+        "app.services.allocations.CapacityGuard.eligible_candidates",
+        fail_if_candidates_are_checked,
+    )
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 63, "mode": "round_robin"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "exceeds department budget"
+
+
+def test_auto_revalidates_selected_ta_before_persistence(monkeypatch):
+    before = client.get("/api/assignments").json()["assignments"]
+    hod_id = _hod_user_id()
+
+    def reject_selected_ta(*args, **kwargs):
+        raise ValueError("selected TA capacity changed")
+
+    monkeypatch.setattr(
+        "app.services.allocations.CapacityGuard.validate_ta",
+        reject_selected_ta,
+    )
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(hod_id)},
+        json={"course_id": 1, "weekly_hours": 1, "mode": "round_robin"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "selected TA capacity changed"
+    assert client.get("/api/assignments").json()["assignments"] == before
+
+
+def test_auto_selects_only_tas_with_capacity():
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 3, "mode": "round_robin"},
+    )
+
+    assert response.status_code == 200
+    assignment = response.json()["assignment"]
+    assert assignment["ta_id"] != 1
+    assert assignment["weekly_hours"] == 3

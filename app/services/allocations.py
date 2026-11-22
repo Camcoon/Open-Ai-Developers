@@ -14,6 +14,8 @@ from app.models.department import Department
 from app.models.ta import Ta
 from app.models.ta_experience import TaExperience
 from app.services.allocation_auth import get_user
+#recently edited
+from app.services.capacity_guard import CapacityGuard
 from app.services.constants import WEEKLY_HOUR_CAP
 from app.services.strategies import MODES, auto_select_ta, get_strategy
 
@@ -90,6 +92,7 @@ def highlight_candidates(course_id: int) -> list[dict[str, Any]]:
     return out
 
 
+#recently edited
 def assign_manual(
     hod_id: int, *, ta_id: int, course_id: int, weekly_hours: int
 ) -> dict[str, Any]:
@@ -106,11 +109,16 @@ def assign_manual(
             return {"ok": False, "error": "ta or course not found"}
 
         load = _load_by_ta(session).get(ta_id, 0)
-        # DEFECT: manual path warns in payload but still inserts when over cap
-        over_cap = load + weekly_hours > WEEKLY_HOUR_CAP
         dept = session.get(Department, 1)
         budget = int(dept.budget_hours_remaining)
-        over_budget = weekly_hours > budget
+        try:
+            CapacityGuard.validate_request(
+                hours=weekly_hours,
+                budget_remaining=budget,
+            )
+            CapacityGuard.validate_ta(current_load=load, hours=weekly_hours)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
 
         row = Assignment(
             ta_id=ta_id,
@@ -119,10 +127,8 @@ def assign_manual(
             created_at=_now(),
         )
         session.add(row)
-        if not over_budget:
-            dept.budget_hours_remaining = dept.budget_hours_remaining - weekly_hours
-            session.add(dept)
-        # DEFECT: if over_budget still inserts assignment without decrementing
+        dept.budget_hours_remaining -= weekly_hours
+        session.add(dept)
         session.commit()
         session.refresh(row)
         assignment = row.model_dump()
@@ -130,11 +136,12 @@ def assign_manual(
     return {
         "ok": True,
         "assignment": assignment,
-        "over_cap": over_cap,
-        "over_budget": over_budget,
+        "over_cap": False,
+        "over_budget": False,
     }
 
 
+#recently edited
 def assign_auto(
     hod_id: int, *, course_id: int, weekly_hours: int, mode: str
 ) -> dict[str, Any]:
@@ -152,15 +159,30 @@ def assign_auto(
         if course_row is None:
             return {"ok": False, "error": "course not found"}
         course = course_row.model_dump()
+        budget = _budget_remaining(session)
+        try:
+            CapacityGuard.validate_request(
+                hours=weekly_hours,
+                budget_remaining=budget,
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
         tas = [t.model_dump() for t in session.exec(select(Ta).order_by(Ta.id)).all()]
         exp = _experience_set(session)
         load = _load_by_ta(session)
-        budget = _budget_remaining(session)
+        eligible_tas = CapacityGuard.eligible_candidates(
+            tas=tas,
+            load_by_ta=load,
+            hours=weekly_hours,
+        )
+        if not eligible_tas:
+            return {"ok": False, "error": "no TAs have sufficient weekly capacity"}
 
     pick = auto_select_ta(
         mode=mode,
         course=course,
-        tas=tas,
+        tas=eligible_tas,
         experience=exp,
         load_by_ta=load,
         budget_remaining=budget,
@@ -169,10 +191,8 @@ def assign_auto(
     )
     if not pick.get("ok"):
         return pick
-    if "next_cursor" in pick:
-        _RR_CURSOR = int(pick["next_cursor"])
 
-    # Persist via manual path (inherits its defects)
+    # The manual service rechecks request and TA capacity immediately before writing.
     result = assign_manual(
         hod_id,
         ta_id=pick["ta_id"],
@@ -181,6 +201,8 @@ def assign_auto(
     )
     if result.get("ok"):
         result["auto"] = pick
+        if "next_cursor" in pick:
+            _RR_CURSOR = int(pick["next_cursor"])
     return result
 
 
