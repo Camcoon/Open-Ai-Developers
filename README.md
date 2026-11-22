@@ -16,15 +16,18 @@ python manage.py init
 python manage.py run
 ```
 
-Open http://127.0.0.1:5000 — SSR auth shell; scenario JSON under `/api` and OpenAPI at `/docs`.
+<!-- #recently edited -->
+Open http://127.0.0.1:5000 — SSR auth shell; scenario JSON under `/api`. The OpenAPI docs at `/docs` and schema at `/openapi.json` require an admin login.
 
-## Seeded API account
+<!-- #recently edited -->
+## Seeded accounts
 
-| Email | Password | Role |
-| --- | --- | --- |
-| `hod@example.com` | `hod-dev` | hod |
+| Username | Email | Password | Role |
+| --- | --- | --- | --- |
+| `hod` | `hod@example.com` | `hod-dev` | hod |
+| `admin` | `admin@example.com` | `admin` | admin |
 
-JSON login: `POST /api/auth/login` with `{"email","password"}`. Allocation endpoints identify the acting HOD with an `X-User-Id` header.
+Sign in at `/login` as `admin` to view `/docs`. The seeded admin password is for local development; change it before using the app outside development. JSON login: `POST /api/auth/login` with `{"email","password"}`. Allocation endpoints identify the acting HOD with an `X-User-Id` header.
 
 ## Student brief
 
