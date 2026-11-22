@@ -774,10 +774,11 @@ The coverage now verifies:
 - the selected TA is revalidated before persistence;
 - round-robin excludes over-capacity TAs.
 
-The complete suite passed after the merges:
+The complete suite passed after the teammate merges. The final suite after
+direct-integration cleanup and round-robin test additions contains:
 
 ```text
-45 passed
+48 passed
 ```
 
 This confirms that the merged implementation satisfies the public allocation
@@ -902,3 +903,24 @@ test failures.
 - [ ] Review comments resolved.
 - [ ] Pull request merged.
 - [ ] Merged `main` tested.
+
+## 18. Phase 8 — Evidence and Handoff
+
+The Strategy evidence record is
+[docs/sprint2/strategy-evidence.md](/Users/User/Open-Ai-Developers/docs/sprint2/strategy-evidence.md).
+
+It records:
+
+- all implemented classes and supported modes;
+- the `RankingStrategy`/`CapacityGuard` responsibility boundary;
+- direct teammate integration behavior;
+- 15 Strategy unit-test passes;
+- 26 allocation/API integration-test passes;
+- 48 complete-suite passes;
+- commit `59a9d9f`;
+- class/dependency diagram;
+- Cameron and Jordan handoff instructions;
+- pending GitHub review and merge fields.
+
+No PR reviewer or merge commit is invented: they remain explicitly marked as
+pending until GitHub review and merge occur.
