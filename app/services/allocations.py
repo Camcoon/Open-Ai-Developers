@@ -14,6 +14,10 @@ from app.models.department import Department
 from app.models.ta import Ta
 from app.models.ta_experience import TaExperience
 from app.services.allocation_auth import get_user
+<<<<<<< Updated upstream
+=======
+from app.services.capacity_guard import CapacityGuard
+>>>>>>> Stashed changes
 from app.services.constants import WEEKLY_HOUR_CAP
 from app.services.strategies import MODES, auto_select_ta
 
@@ -61,12 +65,31 @@ def _budget_remaining(session: Session) -> int:
     return int(dept.budget_hours_remaining)
 
 
+#recently edited
+def _request_validation_error(hours: int, budget_remaining: int) -> str | None:
+    try:
+        CapacityGuard.validate_request(
+            hours=hours,
+            budget_remaining=budget_remaining,
+        )
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+#recently edited
+def _ta_capacity(ta_id: int, load_by_ta: dict[int, int]) -> tuple[int, int]:
+    used = load_by_ta.get(ta_id, 0)
+    return used, WEEKLY_HOUR_CAP - used
+
+
 def ta_remaining_hours(ta_id: int) -> int:
     with Session(engine) as session:
-        used = _load_by_ta(session).get(ta_id, 0)
-    return WEEKLY_HOUR_CAP - used
+        _, remaining = _ta_capacity(ta_id, _load_by_ta(session))
+    return remaining
 
 
+#recently edited
 def highlight_candidates(course_id: int) -> list[dict[str, Any]]:
     """Soft preference view — experienced flagged for HOD."""
     with Session(engine) as session:
@@ -78,13 +101,13 @@ def highlight_candidates(course_id: int) -> list[dict[str, Any]]:
         tas = [t.model_dump() for t in session.exec(select(Ta).order_by(Ta.id)).all()]
     out = []
     for t in tas:
-        used = load.get(t["id"], 0)
+        used, remaining = _ta_capacity(t["id"], load)
         out.append(
             {
                 **t,
                 "prior_experience": (t["id"], course_id) in exp,
                 "weekly_hours_used": used,
-                "weekly_hours_remaining": WEEKLY_HOUR_CAP - used,
+                "weekly_hours_remaining": remaining,
             }
         )
     return out
@@ -96,9 +119,7 @@ def assign_manual(
     user = get_user(hod_id)
     if not user or user["role"] != "hod":
         return {"ok": False, "error": "hod only"}
-    if weekly_hours <= 0:
-        return {"ok": False, "error": "hours must be positive"}
-
+    
     with Session(engine) as session:
         ta = session.get(Ta, ta_id)
         course = session.get(Course, course_id)
@@ -110,7 +131,17 @@ def assign_manual(
         over_cap = load + weekly_hours > WEEKLY_HOUR_CAP
         dept = session.get(Department, 1)
         budget = int(dept.budget_hours_remaining)
+<<<<<<< Updated upstream
         over_budget = weekly_hours > budget
+=======
+        request_error = _request_validation_error(weekly_hours, budget)
+        if request_error:
+            return {"ok": False, "error": request_error}
+        try:
+            CapacityGuard.validate_ta(current_load=load, hours=weekly_hours)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+>>>>>>> Stashed changes
 
         row = Assignment(
             ta_id=ta_id,
@@ -151,6 +182,14 @@ def assign_auto(
         if course_row is None:
             return {"ok": False, "error": "course not found"}
         course = course_row.model_dump()
+<<<<<<< Updated upstream
+=======
+        budget = _budget_remaining(session)
+        request_error = _request_validation_error(weekly_hours, budget)
+        if request_error:
+            return {"ok": False, "error": request_error}
+
+>>>>>>> Stashed changes
         tas = [t.model_dump() for t in session.exec(select(Ta).order_by(Ta.id)).all()]
         exp = _experience_set(session)
         load = _load_by_ta(session)
@@ -183,6 +222,7 @@ def assign_auto(
     return result
 
 
+#recently edited
 def review_board() -> dict[str, Any]:
     with Session(engine) as session:
         courses = [c.model_dump() for c in session.exec(select(Course)).all()]
@@ -190,14 +230,16 @@ def review_board() -> dict[str, Any]:
         load = _load_by_ta(session)
         budget = _budget_remaining(session)
         tas = [t.model_dump() for t in session.exec(select(Ta)).all()]
-    ta_view = [
-        {
-            **t,
-            "weekly_hours_used": load.get(t["id"], 0),
-            "weekly_hours_remaining": WEEKLY_HOUR_CAP - load.get(t["id"], 0),
-        }
-        for t in tas
-    ]
+    ta_view = []
+    for ta in tas:
+        used, remaining = _ta_capacity(ta["id"], load)
+        ta_view.append(
+            {
+                **ta,
+                "weekly_hours_used": used,
+                "weekly_hours_remaining": remaining,
+            }
+        )
     return {
         "courses": courses,
         "assignments": assignments,
