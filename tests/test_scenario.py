@@ -2,8 +2,12 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session, select
 
+from app.database import engine
 from app.main import app
+from app.models.assignment import Assignment
+from app.models.department import Department
 from app.seed import seed
 
 
@@ -12,6 +16,12 @@ def setup_module() -> None:
 
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def reset_scenario():
+    seed(reset=True)
+    yield
 
 
 def test_health_ok():
@@ -150,3 +160,116 @@ def test_auto_selects_only_tas_with_capacity():
     assignment = response.json()["assignment"]
     assert assignment["ta_id"] != 1
     assert assignment["weekly_hours"] == 3
+
+def test_auto_experience_first_allows_exactly_20_hours(reset_scenario):
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 2, "mode": "experience_first"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assignment"]["ta_id"] == 1
+    assert response.json()["assignment"]["weekly_hours"] == 2
+
+
+def test_auto_experience_first_excludes_ta_over_20(reset_scenario):
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 3, "mode": "experience_first"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assignment"]["ta_id"] != 1
+
+
+def test_auto_least_loaded_persists_lowest_loaded_choice(reset_scenario):
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 2, "mode": "least_loaded"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["assignment"]["ta_id"] == 2
+
+    with Session(engine) as session:
+        saved = session.exec(select(Assignment).order_by(Assignment.id)).all()
+        dept = session.get(Department, 1)
+
+    assert len(saved) == 2
+    assert saved[-1].ta_id == 2
+    assert saved[-1].weekly_hours == 2
+    assert dept.budget_hours_remaining == 60
+
+
+@pytest.mark.parametrize("weekly_hours", [0, -2])
+def test_auto_rejects_non_positive_hours_without_state_change(reset_scenario, weekly_hours):
+    before = client.get("/api/assignments").json()["assignments"]
+
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": weekly_hours, "mode": "least_loaded"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "hours must be positive"
+    assert client.get("/api/assignments").json()["assignments"] == before
+
+
+def test_auto_rejects_unknown_mode_without_state_change(reset_scenario):
+    before = client.get("/api/assignments").json()["assignments"]
+
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 1, "mode": "unsupported"},
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported allocation mode" in response.json()["detail"]
+    assert client.get("/api/assignments").json()["assignments"] == before
+
+
+def test_auto_rejects_insufficient_budget_without_state_change(reset_scenario):
+    with Session(engine) as session:
+        dept = session.get(Department, 1)
+        dept.budget_hours_remaining = 1
+        session.add(dept)
+        session.commit()
+
+    before = client.get("/api/assignments").json()["assignments"]
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 2, "mode": "least_loaded"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "exceeds department budget"
+    assert client.get("/api/assignments").json()["assignments"] == before
+
+
+def test_auto_rejects_no_eligible_ta_without_state_change(reset_scenario):
+    with Session(engine) as session:
+        for ta_id in (1, 2, 3):
+            session.add(Assignment(
+                ta_id=ta_id,
+                course_id=1,
+                weekly_hours=20,
+                created_at="2099-01-01T10:00:00+00:00",
+            ))
+        session.commit()
+
+    before = client.get("/api/assignments").json()["assignments"]
+    response = client.post(
+        "/api/assignments/auto",
+        headers={"X-User-Id": str(_hod_user_id())},
+        json={"course_id": 1, "weekly_hours": 1, "mode": "least_loaded"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "no TAs have sufficient weekly capacity"
+    assert client.get("/api/assignments").json()["assignments"] == before

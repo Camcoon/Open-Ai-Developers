@@ -23,7 +23,7 @@ Open http://127.0.0.1:5000 — SSR auth shell; scenario JSON under `/api`. The O
 ## Seeded accounts
 
 | Username | Email | Password | Role |
-| --- | --- | --- |
+| --- | --- | --- | --- |
 | `hod` | `hod@example.com` | `hod-dev` | hod |
 | `admin` | `admin@example.com` | `admin` | admin |
 

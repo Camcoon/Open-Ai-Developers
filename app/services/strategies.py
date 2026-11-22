@@ -1,107 +1,101 @@
-"""
-Auto-allocation “strategies” — intended Strategy-pattern seam, done poorly.
-
-HOD can ask the system to auto-pick a TA for a course under a named policy
-(experience-first, least-loaded, round-robin). This module is one nested
-function with stringly-typed modes, inconsistent hour/budget checks, and
-hard filters where preference should be soft.
-
-Ideal fix: Strategy interface (e.g. select_ta(course, candidates, context))
-with concrete ExperienceFirst / LeastLoaded / RoundRobin strategies, composed
-with a hard CapacityGuard outside the ranking policy.
-"""
+"""Ranking strategies for TA allocation."""
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Any
 
-from app.services.constants import WEEKLY_HOUR_CAP
-
-MODES = ("experience_first", "least_loaded", "round_robin")
+Candidate = dict[str, Any]
 
 
-def auto_select_ta(
-    *,
-    mode: str,
-    course: dict[str, Any],
-    tas: list[dict[str, Any]],
-    experience: set[tuple[int, int]],
-    load_by_ta: dict[int, int],
-    budget_remaining: int,
-    hours: int,
-    round_robin_cursor: int = 0,
-) -> dict[str, Any]:
-    """
-    Pick one TA id for the course.
+class RankingStrategy(ABC):
+    """Common interface for ranking eligible TA candidates."""
 
-    DEFECTS:
-    - experience_first hard-requires experience (should be soft highlight)
-    - least_loaded ignores WEEKLY_HOUR_CAP when comparing
-    - round_robin can select a TA already over cap
-    - budget_remaining checked against hours only sometimes
-    - unknown mode falls through to first TA in list
-    """
-    if hours <= 0:
-        return {"ok": False, "error": "hours must be positive"}
+    @abstractmethod
+    def rank(
+        self,
+        candidates: list[Candidate],
+        *,
+        course_id: int,
+        experience_pairs: set[tuple[int, int]],
+        load_by_ta: dict[int, int],
+    ) -> list[Candidate]:
+        """Return candidates ordered from most preferred to least preferred."""
+        raise NotImplementedError
 
-    # DEFECT: budget check missing here for experience_first / round_robin
-    if mode == "least_loaded" and hours > budget_remaining:
-        return {"ok": False, "error": "exceeds department budget"}
 
-    candidates = list(tas)
-    if not candidates:
-        return {"ok": False, "error": "no TAs"}
+class ExperienceFirstStrategy(RankingStrategy):
+    """Prioritize TAs with prior experience in the requested course."""
 
-    if mode == "experience_first":
-        experienced = [
-            t
-            for t in candidates
-            if (t["id"], course["id"]) in experience
-        ]
-        # DEFECT: hard filter — excludes non-experienced entirely
-        pool = experienced if experienced else []
-        if not pool:
-            return {"ok": False, "error": "no experienced TA (hard filter)"}
-        # among experienced, pick highest current load (inverted — should be least)
-        pool.sort(key=lambda t: load_by_ta.get(t["id"], 0), reverse=True)
-        chosen = pool[0]
-        # DEFECT: no weekly cap check
-        return {
-            "ok": True,
-            "ta_id": chosen["id"],
-            "mode": mode,
-            "reason": "experienced (hard)",
-        }
+    def rank(
+        self,
+        candidates: list[Candidate],
+        *,
+        course_id: int,
+        experience_pairs: set[tuple[int, int]],
+        load_by_ta: dict[int, int],
+    ) -> list[Candidate]:
+        return sorted(
+            candidates,
+            key=lambda ta: (
+                (ta["id"], course_id) not in experience_pairs,
+                load_by_ta.get(ta["id"], 0),
+                ta["id"],
+            ),
+        )
 
-    if mode == "least_loaded":
-        # DEFECT: sorts by load but does not reject if load+hours > 20
-        ordered = sorted(candidates, key=lambda t: load_by_ta.get(t["id"], 0))
-        chosen = ordered[0]
-        return {
-            "ok": True,
-            "ta_id": chosen["id"],
-            "mode": mode,
-            "reason": "lowest current load",
-            "projected_load": load_by_ta.get(chosen["id"], 0) + hours,
-            "cap": WEEKLY_HOUR_CAP,
-        }
 
-    if mode == "round_robin":
-        idx = round_robin_cursor % len(candidates)
-        chosen = candidates[idx]
-        # DEFECT: no cap, no budget, no experience awareness
-        return {
-            "ok": True,
-            "ta_id": chosen["id"],
-            "mode": mode,
-            "reason": "round robin index",
-            "next_cursor": idx + 1,
-        }
+class LeastLoadedStrategy(RankingStrategy):
+    """Prioritize TAs with the lowest current weekly workload."""
 
-    # DEFECT: silent fallback
-    return {
-        "ok": True,
-        "ta_id": candidates[0]["id"],
-        "mode": mode or "unknown",
-        "reason": "fallback first TA",
-    }
+    def rank(
+        self,
+        candidates: list[Candidate],
+        *,
+        course_id: int,
+        experience_pairs: set[tuple[int, int]],
+        load_by_ta: dict[int, int],
+    ) -> list[Candidate]:
+        return sorted(
+            candidates,
+            key=lambda ta: (
+                load_by_ta.get(ta["id"], 0),
+                ta["id"],
+            ),
+        )
+
+
+class RoundRobinStrategy(RankingStrategy):
+    """Rank eligible candidates in their existing stable order."""
+
+    def rank(
+        self,
+        candidates: list[Candidate],
+        *,
+        course_id: int,
+        experience_pairs: set[tuple[int, int]],
+        load_by_ta: dict[int, int],
+    ) -> list[Candidate]:
+        del course_id, experience_pairs, load_by_ta
+        return list(candidates)
+
+
+STRATEGIES: dict[str, RankingStrategy] = {
+    "experience_first": ExperienceFirstStrategy(),
+    "least_loaded": LeastLoadedStrategy(),
+    "round_robin": RoundRobinStrategy(),
+}
+
+MODES = tuple(STRATEGIES)
+
+
+def get_strategy(mode: str) -> RankingStrategy:
+    """Return the ranking strategy registered for a supported mode."""
+    try:
+        return STRATEGIES[mode]
+    except KeyError:
+        supported = ", ".join(sorted(STRATEGIES))
+        raise ValueError(
+            f"Unsupported allocation mode: {mode}. "
+            f"Supported modes: {supported}"
+        ) from None

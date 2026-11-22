@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, func, select
 
 from app.database import engine
@@ -16,8 +17,9 @@ from app.models.ta_experience import TaExperience
 from app.services.allocation_auth import get_user
 from app.services.capacity_guard import CapacityGuard
 from app.services.constants import WEEKLY_HOUR_CAP
-from app.services.strategies import MODES, auto_select_ta
+from app.services.strategies import get_strategy
 
+#recently edited
 _RR_CURSOR = 0
 
 
@@ -80,6 +82,36 @@ def _ta_capacity(ta_id: int, load_by_ta: dict[int, int]) -> tuple[int, int]:
     return used, WEEKLY_HOUR_CAP - used
 
 
+#recently edited
+def _persist_assignment(
+    session: Session,
+    *,
+    ta_id: int,
+    course_id: int,
+    weekly_hours: int,
+    department: Department,
+) -> Assignment:
+    current_load = _load_by_ta(session).get(ta_id, 0)
+    CapacityGuard.validate_ta(current_load=current_load, hours=weekly_hours)
+
+    row = Assignment(
+        ta_id=ta_id,
+        course_id=course_id,
+        weekly_hours=weekly_hours,
+        created_at=_now(),
+    )
+    department.budget_hours_remaining -= weekly_hours
+    session.add(row)
+    session.add(department)
+    try:
+        session.commit()
+        session.refresh(row)
+    except (SQLAlchemyError, RuntimeError):
+        session.rollback()
+        raise
+    return row
+
+
 def ta_remaining_hours(ta_id: int) -> int:
     with Session(engine) as session:
         _, remaining = _ta_capacity(ta_id, _load_by_ta(session))
@@ -124,30 +156,29 @@ def assign_manual(
         if not ta or not course:
             return {"ok": False, "error": "ta or course not found"}
 
-        load = _load_by_ta(session).get(ta_id, 0)
-        dept = session.get(Department, 1)
-        budget = int(dept.budget_hours_remaining)
-        
-        request_error = _request_validation_error(weekly_hours, budget)
+        department = session.get(Department, 1)
+        if department is None:
+            return {"ok": False, "error": "department not found"}
+
+        request_error = _request_validation_error(
+            weekly_hours,
+            int(department.budget_hours_remaining),
+        )
         if request_error:
             return {"ok": False, "error": request_error}
-            
+
         try:
-            CapacityGuard.validate_ta(current_load=load, hours=weekly_hours)
+            row = _persist_assignment(
+                session,
+                ta_id=ta_id,
+                course_id=course_id,
+                weekly_hours=weekly_hours,
+                department=department,
+            )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
-
-        row = Assignment(
-            ta_id=ta_id,
-            course_id=course_id,
-            weekly_hours=weekly_hours,
-            created_at=_now(),
-        )
-        session.add(row)
-        dept.budget_hours_remaining -= weekly_hours
-        session.add(dept)
-        session.commit()
-        session.refresh(row)
+        except (SQLAlchemyError, RuntimeError):
+            return {"ok": False, "error": "allocation could not be persisted"}
         assignment = row.model_dump()
 
     return {
@@ -166,22 +197,30 @@ def assign_auto(
     user = get_user(hod_id)
     if not user or user["role"] != "hod":
         return {"ok": False, "error": "hod only"}
-    if mode not in MODES:
-        pass
+
+    if weekly_hours <= 0:
+        return {"ok": False, "error": "hours must be positive"}
+
+    try:
+        strategy = get_strategy(mode)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
 
     with Session(engine) as session:
         course_row = session.get(Course, course_id)
         if course_row is None:
             return {"ok": False, "error": "course not found"}
-        course = course_row.model_dump()
-        budget = _budget_remaining(session)
-        
+        department = session.get(Department, 1)
+        if department is None:
+            return {"ok": False, "error": "department not found"}
+        budget = int(department.budget_hours_remaining)
+
         request_error = _request_validation_error(weekly_hours, budget)
         if request_error:
             return {"ok": False, "error": request_error}
 
         tas = [t.model_dump() for t in session.exec(select(Ta).order_by(Ta.id)).all()]
-        exp = _experience_set(session)
+        experience = _experience_set(session)
         load = _load_by_ta(session)
         eligible_tas = CapacityGuard.eligible_candidates(
             tas=tas,
@@ -191,30 +230,64 @@ def assign_auto(
         if not eligible_tas:
             return {"ok": False, "error": "no TAs have sufficient weekly capacity"}
 
-    pick = auto_select_ta(
-        mode=mode,
-        course=course,
-        tas=eligible_tas,
-        experience=exp,
-        load_by_ta=load,
-        budget_remaining=budget,
-        hours=weekly_hours,
-        round_robin_cursor=_RR_CURSOR,
-    )
-    if not pick.get("ok"):
-        return pick
+        ranked_tas = strategy.rank(
+            eligible_tas,
+            course_id=course_id,
+            experience_pairs=experience,
+            load_by_ta=load,
+        )
+        if not ranked_tas:
+            return {"ok": False, "error": "no eligible TAs"}
 
-    result = assign_manual(
-        hod_id,
-        ta_id=pick["ta_id"],
-        course_id=course_id,
-        weekly_hours=weekly_hours,
-    )
-    if result.get("ok"):
-        result["auto"] = pick
-        if "next_cursor" in pick:
-            _RR_CURSOR = int(pick["next_cursor"])
-    return result
+        next_cursor = None
+        if mode == "round_robin":
+            cursor = _RR_CURSOR % len(ranked_tas)
+            selected_ta = ranked_tas[cursor]
+            next_cursor = cursor + 1
+        else:
+            selected_ta = ranked_tas[0]
+
+        ta_id = int(selected_ta["id"])
+        current_load = load.get(ta_id, 0)
+        try:
+            row = _persist_assignment(
+                session,
+                ta_id=ta_id,
+                course_id=course_id,
+                weekly_hours=weekly_hours,
+                department=department,
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except (SQLAlchemyError, RuntimeError):
+            return {"ok": False, "error": "allocation could not be persisted"}
+        assignment = row.model_dump()
+
+    if next_cursor is not None:
+        _RR_CURSOR = next_cursor
+
+    pick = {
+        "ok": True,
+        "ta_id": ta_id,
+        "mode": mode,
+        "reason": (
+            "prior course experience"
+            if (ta_id, course_id) in experience
+            else "eligible candidate"
+        ),
+        "projected_load": current_load + weekly_hours,
+        "cap": WEEKLY_HOUR_CAP,
+    }
+    if next_cursor is not None:
+        pick["next_cursor"] = next_cursor
+
+    return {
+        "ok": True,
+        "assignment": assignment,
+        "auto": pick,
+        "over_cap": False,
+        "over_budget": False,
+    }
 
 
 #recently edited
