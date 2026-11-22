@@ -67,9 +67,25 @@ class LeastLoadedStrategy(RankingStrategy):
         )
 
 
+class RoundRobinStrategy(RankingStrategy):
+    """Rank eligible candidates in their existing stable order."""
+
+    def rank(
+        self,
+        candidates: list[Candidate],
+        *,
+        course_id: int,
+        experience_pairs: set[tuple[int, int]],
+        load_by_ta: dict[int, int],
+    ) -> list[Candidate]:
+        del course_id, experience_pairs, load_by_ta
+        return list(candidates)
+
+
 STRATEGIES: dict[str, RankingStrategy] = {
     "experience_first": ExperienceFirstStrategy(),
     "least_loaded": LeastLoadedStrategy(),
+    "round_robin": RoundRobinStrategy(),
 }
 
 MODES = tuple(STRATEGIES)
@@ -104,8 +120,6 @@ def auto_select_ta(
     and Strategy classes directly. This wrapper remains only so the starter
     service can continue importing the module during independent development.
     """
-    del round_robin_cursor
-
     if hours <= 0:
         return {"ok": False, "error": "hours must be positive"}
     if hours > budget_remaining:
@@ -133,9 +147,16 @@ def auto_select_ta(
     if not ranked:
         return {"ok": False, "error": "no eligible TAs"}
 
-    chosen = ranked[0]
+    if mode == "round_robin":
+        cursor = round_robin_cursor % len(ranked)
+        chosen = ranked[cursor]
+        next_cursor = cursor + 1
+    else:
+        chosen = ranked[0]
+        next_cursor = None
+
     projected_load = load_by_ta.get(chosen["id"], 0) + hours
-    return {
+    result = {
         "ok": True,
         "ta_id": chosen["id"],
         "mode": mode,
@@ -147,3 +168,6 @@ def auto_select_ta(
         "projected_load": projected_load,
         "cap": WEEKLY_HOUR_CAP,
     }
+    if next_cursor is not None:
+        result["next_cursor"] = next_cursor
+    return result

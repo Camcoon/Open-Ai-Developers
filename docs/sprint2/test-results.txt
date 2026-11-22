@@ -1,0 +1,6 @@
+Phase 5 Full Regression
+Date: 2026-11-21
+Branch: feature/15-auto-allocation
+Command: python -m pytest tests -q
+Result: 45 passed, 7 warnings
+Warnings: FastAPI/Starlette/httpx and StarletteDeprecationWarning warnings only.
