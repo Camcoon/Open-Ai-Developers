@@ -25,7 +25,21 @@ def seed(*, reset: bool = False) -> None:
     ensure_db_and_tables()
 
     with Session(engine) as session:
-        if session.exec(select(User)).first() is not None:
+        existing_users = session.exec(select(User)).first()
+        #recently edited
+        admin = session.exec(select(User).where(User.username == "admin")).first()
+        if admin is None:
+            session.add(
+                User(
+                    username="admin",
+                    email="admin@example.com",
+                    password=encrypt_password("admin"),
+                    role="admin",
+                )
+            )
+            session.commit()
+
+        if existing_users is not None:
             return
 
         session.add(
