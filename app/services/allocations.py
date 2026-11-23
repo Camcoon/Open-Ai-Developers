@@ -19,7 +19,7 @@ from app.services.capacity_guard import CapacityGuard
 from app.services.constants import WEEKLY_HOUR_CAP
 from app.services.strategies import get_strategy
 
-#recently edited
+# recently edited
 _RR_CURSOR = 0
 
 
@@ -64,7 +64,7 @@ def _budget_remaining(session: Session) -> int:
     return int(dept.budget_hours_remaining)
 
 
-#recently edited
+# recently edited
 def _request_validation_error(hours: int, budget_remaining: int) -> str | None:
     try:
         CapacityGuard.validate_request(
@@ -76,13 +76,13 @@ def _request_validation_error(hours: int, budget_remaining: int) -> str | None:
     return None
 
 
-#recently edited
+# recently edited
 def _ta_capacity(ta_id: int, load_by_ta: dict[int, int]) -> tuple[int, int]:
     used = load_by_ta.get(ta_id, 0)
     return used, WEEKLY_HOUR_CAP - used
 
 
-#recently edited
+# recently edited
 def _persist_assignment(
     session: Session,
     *,
@@ -118,7 +118,97 @@ def ta_remaining_hours(ta_id: int) -> int:
     return remaining
 
 
-#recently edited
+def personal_dashboard(email: str, fallback_name: str) -> dict[str, Any]:
+    with Session(engine) as session:
+        ta = session.exec(select(Ta).where(Ta.email == email)).first()
+        if ta is None:
+            return {
+                "display_name": fallback_name,
+                "assigned_courses": [],
+                "prior_experience_courses": [],
+                "weekly_hours_remaining": WEEKLY_HOUR_CAP,
+            }
+
+        rows = session.exec(
+            select(Assignment, Course)
+            .join(Course, Assignment.course_id == Course.id)
+            .where(Assignment.ta_id == ta.id)
+            .order_by(Course.code, Assignment.id)
+        ).all()
+        course_hours: dict[str, dict[str, Any]] = {}
+        for assignment, course in rows:
+            item = course_hours.setdefault(
+                course.code,
+                {
+                    "code": course.code,
+                    "title": course.title,
+                    "weekly_hours": 0,
+                },
+            )
+            item["weekly_hours"] += assignment.weekly_hours
+
+        experience_course_ids = {
+            course_id for ta_id, course_id in _experience_set(session) if ta_id == ta.id
+        }
+        experience_courses = (
+            session.exec(
+                select(Course)
+                .where(Course.id.in_(experience_course_ids))
+                .order_by(Course.code)
+            ).all()
+            if experience_course_ids
+            else []
+        )
+        _, remaining = _ta_capacity(ta.id, _load_by_ta(session))
+        return {
+            "display_name": ta.name,
+            "assigned_courses": list(course_hours.values()),
+            "prior_experience_courses": [
+                {"code": course.code, "title": course.title}
+                for course in experience_courses
+            ],
+            "weekly_hours_remaining": remaining,
+        }
+
+
+# recently edited
+def allocation_management_data() -> dict[str, Any]:
+    with Session(engine) as session:
+        tas = [ta.model_dump() for ta in session.exec(select(Ta).order_by(Ta.id)).all()]
+        courses = [
+            course.model_dump()
+            for course in session.exec(select(Course).order_by(Course.id)).all()
+        ]
+        department = session.get(Department, 1)
+        if department is None:
+            raise RuntimeError("department not found")
+
+        experience = _experience_set(session)
+        load = _load_by_ta(session)
+        ta_rows = []
+        for ta in tas:
+            used, remaining = _ta_capacity(ta["id"], load)
+            prior_experience_courses = [
+                course for course in courses if (ta["id"], course["id"]) in experience
+            ]
+            ta_rows.append(
+                {
+                    **ta,
+                    "weekly_hours_used": used,
+                    "weekly_hours_remaining": remaining,
+                    "prior_experience_courses": prior_experience_courses,
+                }
+            )
+
+        return {
+            "tas": ta_rows,
+            "courses": courses,
+            "budget_hours_remaining": int(department.budget_hours_remaining),
+            "weekly_hour_cap": WEEKLY_HOUR_CAP,
+        }
+
+
+# recently edited
 def highlight_candidates(course_id: int) -> list[dict[str, Any]]:
     """Soft preference view — experienced flagged for HOD."""
     with Session(engine) as session:
@@ -142,13 +232,13 @@ def highlight_candidates(course_id: int) -> list[dict[str, Any]]:
     return out
 
 
-#recently edited
+# recently edited
 def assign_manual(
     hod_id: int, *, ta_id: int, course_id: int, weekly_hours: int
 ) -> dict[str, Any]:
     user = get_user(hod_id)
-    if not user or user["role"] != "hod":
-        return {"ok": False, "error": "hod only"}
+    if not user or user["role"] not in {"hod", "admin"}:
+        return {"ok": False, "error": "hod or admin only"}
 
     with Session(engine) as session:
         ta = session.get(Ta, ta_id)
@@ -189,7 +279,7 @@ def assign_manual(
     }
 
 
-#recently edited
+# recently edited
 def assign_auto(
     hod_id: int, *, course_id: int, weekly_hours: int, mode: str
 ) -> dict[str, Any]:
@@ -290,7 +380,7 @@ def assign_auto(
     }
 
 
-#recently edited
+# recently edited
 def review_board() -> dict[str, Any]:
     with Session(engine) as session:
         courses = [c.model_dump() for c in session.exec(select(Course)).all()]

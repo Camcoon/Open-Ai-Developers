@@ -1,14 +1,19 @@
+from decimal import Decimal
+
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import select
+from sqlalchemy import inspect, text
+from sqlmodel import Session, create_engine, select
 
 from app.config import get_settings
+from app.database import _ensure_ta_profile_columns, get_session
 from app.main import app
 from app.models.assignment import Assignment
 from app.models.course import Course
 from app.models.department import Department
 from app.models.ta import Ta
+from app.models.user import User
 from app.repositories.user import UserRepository
 from app.services import allocations
 from app.services.auth_service import AuthService
@@ -59,6 +64,94 @@ def test_register_user(test_session):
     assert len(users) == 1
     assert users[0].username == "alice"
     assert users[0].email == "alice@example.com"
+
+
+def test_ta_registration_creates_ta_record(test_session):
+    def override_session():
+        yield test_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).post(
+            "/register",
+            data={
+                "username": "taylor",
+                "name": "Taylor TA",
+                "email": "taylor@example.com",
+                "password": "secret",
+                "role": "ta",
+            },
+            follow_redirects=False,
+        )
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+    assert response.status_code == 303
+    user = test_session.exec(select(User).where(User.username == "taylor")).one()
+    ta = test_session.exec(select(Ta).where(Ta.email == "taylor@example.com")).one()
+    assert user.role == "ta"
+    assert ta.name == "Taylor TA"
+    assert ta.hourly_rate == Decimal("0.00")
+    assert ta.performance_rating == 0.0
+
+
+def test_public_registration_cannot_create_admin(test_session):
+    def override_session():
+        yield test_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).post(
+            "/register",
+            data={
+                "username": "self-admin",
+                "name": "Self Admin",
+                "email": "self-admin@example.com",
+                "password": "secret",
+                "role": "admin",
+            },
+            follow_redirects=True,
+        )
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+    assert response.status_code == 200
+    assert "Public registration only allows regular users or TAs" in response.text
+    assert test_session.exec(
+        select(User).where(User.username == "self-admin")
+    ).first() is None
+
+
+def test_legacy_ta_table_is_migrated_with_default_profile_fields():
+    legacy_engine = create_engine("sqlite://")
+    try:
+        with legacy_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE tas "
+                    "(id INTEGER PRIMARY KEY, name TEXT NOT NULL, "
+                    "email TEXT NOT NULL UNIQUE)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO tas (id, name, email) "
+                    "VALUES (1, 'Legacy TA', 'legacy@example.com')"
+                )
+            )
+
+        _ensure_ta_profile_columns(legacy_engine)
+
+        columns = {
+            column["name"] for column in inspect(legacy_engine).get_columns("tas")
+        }
+        assert {"hourly_rate", "performance_rating"} <= columns
+        with Session(legacy_engine) as session:
+            ta = session.get(Ta, 1)
+        assert ta.hourly_rate == Decimal("0.00")
+        assert ta.performance_rating == 0.0
+    finally:
+        legacy_engine.dispose()
 
 
 #recently edited

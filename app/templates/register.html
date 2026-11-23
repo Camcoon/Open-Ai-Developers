@@ -14,8 +14,37 @@
         <input class="form-control" type="text" id="username" name="username" required autofocus>
       </div>
       <div class="mb-3">
+        <label class="form-label" for="name">Full name (required for TA accounts)</label>
+        <input class="form-control" type="text" id="name" name="name">
+      </div>
+      <div class="mb-3">
         <label class="form-label" for="email">Email</label>
         <input class="form-control" type="email" id="email" name="email" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="role">Account type</label>
+        <select class="form-select" id="role" name="role" required>
+          <option value="regular_user">Regular user</option>
+          <option value="ta">Teaching assistant (TA)</option>
+        </select>
+      </div>
+      <div class="mb-3" id="experience-field" hidden>
+        <label class="form-label" for="experience_course_ids">
+          Prior course experience (optional; for TA accounts)
+        </label>
+        <select
+          class="form-select"
+          id="experience_course_ids"
+          name="experience_course_ids"
+          multiple
+          size="4"
+          aria-describedby="experience-help"
+        >
+          {% for course in courses %}
+          <option value="{{ course.id }}">{{ course.code }} — {{ course.title }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text" id="experience-help">Select every course where you have prior experience.</div>
       </div>
       <div class="mb-3">
         <label class="form-label" for="password">Password</label>
@@ -32,4 +61,16 @@
     </form>
   </div>
 </div>
+<script>
+  const accountType = document.getElementById("role");
+  const experienceField = document.getElementById("experience-field");
+  const experienceSelect = document.getElementById("experience_course_ids");
+  function updateExperienceField() {
+    const isTa = accountType.value === "ta";
+    experienceField.hidden = !isTa;
+    experienceSelect.disabled = !isTa;
+  }
+  accountType.addEventListener("change", updateExperienceField);
+  updateExperienceField();
+</script>
 {% endblock %}

@@ -2,13 +2,65 @@
 {% block title %}Admin · LoadBoard{% endblock %}
 
 {% block subpage_content %}
-<h1>Admin</h1>
-<p>
-  Review current assignments against hour caps and the remaining department budget through the API.
-</p>
-<div class="app-actions">
-  <a href="/docs">Open API docs</a>
-  <a class="secondary" href="/api/assignments">Assignments</a>
-  <a class="secondary" href="/api/review">Review board</a>
-</div>
+<h1>Admin overview</h1>
+<p>Monitor TA and course totals, department budget, and each TA's current workload.</p>
+
+{# #recently edited #}
+<section class="mb-4" aria-labelledby="admin-overview-title">
+  <h2 id="admin-overview-title">Overview</h2>
+  <div class="row g-3">
+    <div class="col-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h3 class="h6 card-title">Total TAs</h3>
+          <p class="h3 mb-0">{{ tas|length }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h3 class="h6 card-title">Total courses</h3>
+          <p class="h3 mb-0">{{ courses|length }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h3 class="h6 card-title">Department budget remaining</h3>
+          <p class="h3 mb-0">{{ budget_hours_remaining }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mb-4" aria-labelledby="ta-workload-title">
+  <h2 id="ta-workload-title">TA weekly workload</h2>
+  {% if tas %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Teaching assistant</th>
+          <th scope="col">Hours used</th>
+          <th scope="col">Hours remaining</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ta in tas %}
+        <tr>
+          <td>{{ ta.name }}</td>
+          <td>{{ ta.weekly_hours_used }}</td>
+          <td>{{ ta.weekly_hours_remaining }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No teaching assistants are available.</p>
+  {% endif %}
+</section>
 {% endblock %}

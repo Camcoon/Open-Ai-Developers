@@ -3,8 +3,10 @@ import threading
 import time
 from contextlib import contextmanager
 
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import get_settings
 
@@ -37,6 +39,26 @@ def create_db_and_tables() -> None:
     import app.models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _ensure_ta_profile_columns(engine)
+
+
+def _ensure_ta_profile_columns(database_engine: Engine) -> None:
+    with database_engine.begin() as connection:
+        inspector = inspect(connection)
+        if "tas" not in inspector.get_table_names():
+            return
+
+        columns = {column["name"] for column in inspector.get_columns("tas")}
+        migrations = {
+            "hourly_rate": "NUMERIC(8, 2) NOT NULL DEFAULT 0.00",
+            "performance_rating": "FLOAT NOT NULL DEFAULT 0.0",
+        }
+        for name, definition in migrations.items():
+            if name not in columns:
+                connection.execute(
+                    text(f"ALTER TABLE tas ADD COLUMN {name} {definition}")
+                )
+                logger.info("Added missing tas.%s column", name)
 
 
 def drop_all() -> None:
@@ -85,7 +107,7 @@ def ensure_db_and_tables(
             if attempt > 1:
                 logger.info("Database schema ready after %s attempt(s)", attempt)
             return
-        except Exception as exc:  # noqa: BLE001 — first-boot resilience
+        except Exception as exc:
             last = exc
             if not is_db_not_ready_error(exc) or attempt >= retries:
                 raise

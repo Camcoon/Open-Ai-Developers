@@ -1,20 +1,46 @@
-from sqlmodel import Session, select, func
-from app.models.user import UserBase, User
-from typing import Optional, Tuple
-from app.utilities.pagination import Pagination
-from app.schemas.user import UserUpdate
 import logging
+from typing import Optional, Tuple
+
+from sqlmodel import Session, func, select
+
+from app.models.course import Course
+from app.models.ta import Ta
+from app.models.ta_experience import TaExperience
+from app.models.user import User, UserBase
+from app.schemas.user import UserUpdate
+from app.utilities.pagination import Pagination
 
 logger = logging.getLogger(__name__)
+
 
 class UserRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, user_data: UserBase) -> Optional[User]:
+    def create(
+        self,
+        user_data: UserBase,
+        *,
+        ta_name: str | None = None,
+        experience_course_ids: list[int] | None = None,
+    ) -> Optional[User]:
         try:
             user_db = User.model_validate(user_data)
             self.db.add(user_db)
+            if user_db.role == "ta":
+                ta = Ta(
+                    name=ta_name or user_db.username,
+                    email=user_db.email,
+                )
+                self.db.add(ta)
+                self.db.flush()
+                if ta.id is None:
+                    raise RuntimeError("TA profile was not assigned an ID")
+                self.replace_ta_experience(ta.id, experience_course_ids or [])
+            elif experience_course_ids:
+                raise ValueError(
+                    "Prior course experience is only valid for TA accounts"
+                )
             self.db.commit()
             self.db.refresh(user_db)
             return user_db
@@ -23,7 +49,33 @@ class UserRepository:
             self.db.rollback()
             raise
 
-    def search_users(self, query: str, page:int=1, limit:int=10) -> Tuple[list[User], Pagination]:
+    def replace_ta_experience(
+        self,
+        ta_id: int,
+        experience_course_ids: list[int],
+    ) -> None:
+        selected_ids = set(experience_course_ids)
+        if selected_ids:
+            courses = self.db.exec(
+                select(Course).where(Course.id.in_(selected_ids))
+            ).all()
+            valid_ids = {course.id for course in courses if course.id is not None}
+            if selected_ids != valid_ids:
+                raise ValueError("Select only existing courses for TA experience")
+
+        existing = self.db.exec(
+            select(TaExperience).where(TaExperience.ta_id == ta_id)
+        ).all()
+        existing_ids = {experience.course_id for experience in existing}
+        for experience in existing:
+            if experience.course_id not in selected_ids:
+                self.db.delete(experience)
+        for course_id in selected_ids - existing_ids:
+            self.db.add(TaExperience(ta_id=ta_id, course_id=course_id))
+
+    def search_users(
+        self, query: str, page: int = 1, limit: int = 10
+    ) -> Tuple[list[User], Pagination]:
         offset = (page - 1) * limit
         db_qry = select(User)
         if query:
@@ -47,7 +99,7 @@ class UserRepository:
     def get_all_users(self) -> list[User]:
         return self.db.exec(select(User)).all()
 
-    def update_user(self, user_id:int, user_data: UserUpdate)->User:
+    def update_user(self, user_id: int, user_data: UserUpdate) -> User:
         user = self.db.get(User, user_id)
         if not user:
             raise Exception("Invalid user id given")
@@ -55,7 +107,7 @@ class UserRepository:
             user.username = user_data.username
         if user_data.email:
             user.email = user_data.email
-        
+
         try:
             self.db.add(user)
             self.db.commit()

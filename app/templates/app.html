@@ -2,18 +2,55 @@
 {% block title %}Home · LoadBoard{% endblock %}
 
 {% block subpage_content %}
-<h1>Load board</h1>
-<p>
-  Explore the allocations JSON API: TAs, course budgets, candidates, and the review board.
-  Seeded TAs, courses, and a department budget are ready after <code>python manage.py init</code>.
-</p>
-<div class="app-actions">
-  {# #recently edited #}
-  {% if user and user.role == "admin" %}
-  <a href="/docs">Open API docs</a>
+{% if user.role in ["hod", "admin"] %}
+<h1>Allocation overview</h1>
+<p>View current TA assignments and remaining department capacity.</p>
+{% include "_allocation_board.html" %}
+{% else %}
+<h1>Welcome, {{ personal_dashboard.display_name }}</h1>
+
+<section class="mb-4" aria-labelledby="personal-courses-title">
+  <h2 id="personal-courses-title">Your assigned courses</h2>
+  {% if personal_dashboard.assigned_courses %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Course</th>
+          <th scope="col">Weekly hours</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for course in personal_dashboard.assigned_courses %}
+        <tr>
+          <td>{{ course.code }} — {{ course.title }}</td>
+          <td>{{ course.weekly_hours }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No courses are assigned to you.</p>
   {% endif %}
-  <a class="secondary" href="/api/review">Review board</a>
-  <a class="secondary" href="/api/courses">Courses</a>
-  <a class="secondary" href="/api/tas">TAs</a>
-</div>
+</section>
+
+<section aria-labelledby="personal-hours-title">
+  <h2 id="personal-hours-title">Your weekly hours remaining</h2>
+  <p>{{ personal_dashboard.weekly_hours_remaining }}</p>
+</section>
+
+<section class="mt-4" aria-labelledby="personal-experience-title">
+  <h2 id="personal-experience-title">Your prior course experience</h2>
+  {% if personal_dashboard.prior_experience_courses %}
+  <ul>
+    {% for course in personal_dashboard.prior_experience_courses %}
+    <li>{{ course.code }} — {{ course.title }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No prior course experience has been registered.</p>
+  {% endif %}
+</section>
+{% endif %}
 {% endblock %}
