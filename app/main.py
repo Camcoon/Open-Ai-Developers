@@ -25,7 +25,8 @@ async def lifespan(app: FastAPI):
 
 #edited jn
 app = FastAPI(
-    docs_url=None, redoc_url=None,
+    docs_url=None,
+    redoc_url=None,
     openapi_url=None,
     middleware=[
         Middleware(SessionMiddleware, secret_key=get_settings().secret_key)

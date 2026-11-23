@@ -1,0 +1,86 @@
+{% extends "authenticated-base.html" %}
+{% block title %}Manage assignments · LoadBoard{% endblock %}
+
+{% block subpage_content %}
+<h1>Manage assignments</h1>
+<p>Department budget remaining: <strong>{{ budget_hours_remaining }}</strong> hours</p>
+
+<section class="mb-4" aria-labelledby="manual-assignment-title">
+  <h2 id="manual-assignment-title">Manual assignment</h2>
+  {% if tas and courses %}
+  <form method="post" action="{{ url_for('create_manual_assignment') }}">
+    <div class="mb-3">
+      <label class="form-label" for="ta_id">Teaching assistant</label>
+      <select class="form-select" id="ta_id" name="ta_id" required>
+        {% for ta in tas %}
+        <option value="{{ ta.id }}">
+          {{ ta.name }} ({{ ta.weekly_hours_remaining }} hours remaining)
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="course_id">Course</label>
+      <select class="form-select" id="course_id" name="course_id" required>
+        {% for course in courses %}
+        <option value="{{ course.id }}">{{ course.code }} — {{ course.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="weekly_hours">Weekly hours</label>
+      <input
+        class="form-control"
+        id="weekly_hours"
+        name="weekly_hours"
+        type="number"
+        min="1"
+        max="{{ weekly_hour_cap }}"
+        required
+      >
+    </div>
+    <button class="btn btn-primary" type="submit">Assign TA</button>
+  </form>
+  {% else %}
+  <p>Assignments require at least one teaching assistant and one course.</p>
+  {% endif %}
+</section>
+
+<section class="mb-4" aria-labelledby="available-tas-title">
+  <h2 id="available-tas-title">Available TAs</h2>
+  {% if tas %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Teaching assistant</th>
+          <th scope="col">Hours used</th>
+          <th scope="col">Hours remaining</th>
+          <th scope="col">Prior course experience</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ta in tas %}
+        <tr>
+          <td>{{ ta.name }}</td>
+          <td>{{ ta.weekly_hours_used }}</td>
+          <td>{{ ta.weekly_hours_remaining }}</td>
+          <td>
+            {% if ta.prior_experience_courses %}
+            {% for course in ta.prior_experience_courses %}
+            {{ course.code }}{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            {% else %}
+            None
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No teaching assistants are available.</p>
+  {% endif %}
+</section>
+{% endblock %}

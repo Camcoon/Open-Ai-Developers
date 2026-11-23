@@ -1,0 +1,106 @@
+{# #recently edited #}
+<section class="mb-4" aria-labelledby="allocation-overview-title">
+  <h2 id="allocation-overview-title">Allocation overview</h2>
+  <div class="row g-3">
+    <div class="col-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <h3 class="h6 card-title">Teaching assistants</h3>
+          <p class="h3 mb-0">{{ tas|length }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <h3 class="h6 card-title">Courses</h3>
+          <p class="h3 mb-0">{{ courses|length }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <h3 class="h6 card-title">Assignments</h3>
+          <p class="h3 mb-0">{{ assignments|length }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <h3 class="h6 card-title">Department hours remaining</h3>
+          <p class="h3 mb-0">{{ budget_hours_remaining }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% if show_details %}
+<section class="mb-4" aria-labelledby="assignments-title">
+  <h2 id="assignments-title">Current assignments</h2>
+  {% if assignments %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Teaching assistant</th>
+          <th scope="col">Course</th>
+          <th scope="col">Weekly hours</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for assignment in assignments %}
+        {% set assigned_ta = (tas | selectattr("id", "equalto", assignment.ta_id) | list | first) %}
+        {% set assigned_course = (courses | selectattr("id", "equalto", assignment.course_id) | list | first) %}
+        <tr>
+          <td>{{ assigned_ta.name if assigned_ta else "Unknown TA" }}</td>
+          <td>
+            {% if assigned_course %}
+            {{ assigned_course.code }} — {{ assigned_course.title }}
+            {% else %}
+            Unknown course
+            {% endif %}
+          </td>
+          <td>{{ assignment.weekly_hours }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No assignments have been made yet.</p>
+  {% endif %}
+</section>
+
+<section class="mb-4" aria-labelledby="ta-capacity-title">
+  <h2 id="ta-capacity-title">TA weekly capacity</h2>
+  {% if tas %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Teaching assistant</th>
+          <th scope="col">Hours assigned</th>
+          <th scope="col">Hours remaining</th>
+          <th scope="col">Weekly cap</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ta in tas %}
+        <tr>
+          <td>{{ ta.name }}</td>
+          <td>{{ ta.weekly_hours_used }}</td>
+          <td>{{ ta.weekly_hours_remaining }}</td>
+          <td>{{ weekly_hour_cap }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No teaching assistants are available.</p>
+  {% endif %}
+</section>
+{% endif %}

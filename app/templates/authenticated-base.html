@@ -3,18 +3,27 @@
 {% block content %}
 <div class="app-shell">
   <header class="app-topbar">
-    <a class="brand-wordmark" href="{{ url_for('index_view') }}">LoadBoard</a>
+    <span class="brand-wordmark">LoadBoard</span>
     <nav class="app-topnav" aria-label="App">
       <a class="{{ 'is-active' if request.url.path.startswith('/app') }}"
         href="{{ url_for('user_home_view') }}">Home</a>
-
-      {# Only show API docs to admins (or whatever your specific dev role is) #}
-      {% if user and user.role == 'admin' %}
+      {% if user and user.role in ["hod", "admin"] %}
+      <a class="{{ 'is-active' if request.url.path.startswith('/allocations') }}"
+        href="{{ url_for('manage_allocations_view') }}">Manage Assignments</a>
+      <a class="{{ 'is-active' if request.url.path.startswith('/manage-courses') }}"
+        href="{{ url_for('manage_courses_view') }}">Manage Courses</a>
+      <a class="{{ 'is-active' if request.url.path.startswith('/review') }}"
+        href="{{ url_for('review_board_view') }}">Review Board</a>
+      {% endif %}
+      {# #recently edited #}
+      {% if user and user.role == "admin" %}
+      <a class="{{ 'is-active' if request.url.path.startswith('/admin') }}"
+        href="{{ url_for('admin_home_view') }}">Admin Overview</a>
+      <a class="{{ 'is-active' if request.url.path.startswith('/accounts') }}"
+        href="{{ url_for('manage_accounts_view') }}">Manage Accounts</a>
       <a href="/docs">API docs</a>
       {% endif %}
-
       <a href="{{ url_for('logout') }}">Sign out</a>
-      <span>{{ user.username }}</span>
     </nav>
   </header>
   <main class="app-main">

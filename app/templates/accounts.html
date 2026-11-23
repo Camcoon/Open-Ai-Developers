@@ -1,0 +1,135 @@
+{% extends "authenticated-base.html" %}
+{% block title %}Accounts · LoadBoard{% endblock %}
+
+{% block subpage_content %}
+<h1>Accounts</h1>
+<p>Create accounts and manage their roles. TA profiles and assignment history are retained if a TA changes roles.</p>
+
+<section class="mb-4" aria-labelledby="create-account-title">
+  <h2 id="create-account-title">Create account</h2>
+  <form method="post" action="{{ url_for('create_managed_account') }}">
+    <div class="mb-3">
+      <label class="form-label" for="username">Username</label>
+      <input class="form-control" id="username" name="username" type="text" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="name">Full name (required for TA accounts)</label>
+      <input class="form-control" id="name" name="name" type="text">
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="email">Email</label>
+      <input class="form-control" id="email" name="email" type="email" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="password">Initial password</label>
+      <input class="form-control" id="password" name="password" type="password" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="role">Account role</label>
+      <select class="form-select" id="create-role" name="role" required>
+        {% for role_value, role_label in roles %}
+        <option value="{{ role_value }}">{{ role_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3" id="create-experience-field" hidden>
+      <label class="form-label" for="experience_course_ids">Prior course experience (for TA accounts)</label>
+      <select
+        class="form-select"
+        id="experience_course_ids"
+        name="experience_course_ids"
+        multiple
+        size="4"
+      >
+        {% for course in courses %}
+        <option value="{{ course.id }}">{{ course.code }} — {{ course.title }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text">Optional. Select courses where the TA has prior experience.</div>
+    </div>
+    <button class="btn btn-primary" type="submit">Create account</button>
+  </form>
+</section>
+<script>
+  const createRole = document.getElementById("create-role");
+  const createExperienceField = document.getElementById("create-experience-field");
+  const createExperienceSelect = document.getElementById("experience_course_ids");
+  function updateCreateExperienceField() {
+    const isTa = createRole.value === "ta";
+    createExperienceField.hidden = !isTa;
+    createExperienceSelect.disabled = !isTa;
+  }
+  createRole.addEventListener("change", updateCreateExperienceField);
+  updateCreateExperienceField();
+</script>
+
+<section class="mb-4" aria-labelledby="accounts-title">
+  <h2 id="accounts-title">Existing accounts</h2>
+  {% if users %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Username</th>
+          <th scope="col">Email</th>
+          <th scope="col">Role</th>
+          <th scope="col">Change role</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for account in users %}
+        {% set ta_profile = ta_profiles.get(account.email) %}
+        <tr>
+          <td>{{ account.username }}</td>
+          <td>{{ account.email }}</td>
+          <td>{{ account.role }}</td>
+          <td>
+            <form
+              class="d-flex flex-wrap gap-2"
+              method="post"
+              action="{{ url_for('update_account_role', account_id=account.id) }}"
+            >
+              <select class="form-select" name="role" aria-label="Role for {{ account.username }}">
+                {% for role_value, role_label in roles %}
+                <option value="{{ role_value }}" {% if account.role == role_value %}selected{% endif %}>
+                  {{ role_label }}
+                </option>
+                {% endfor %}
+              </select>
+              <input
+                class="form-control"
+                name="name"
+                type="text"
+                aria-label="TA profile name for {{ account.username }}"
+                placeholder="TA full name"
+                value="{{ ta_profile.name if ta_profile else account.username }}"
+              >
+              <select
+                class="form-select"
+                name="experience_course_ids"
+                aria-label="Prior course experience for {{ account.username }}"
+                multiple
+                size="3"
+              >
+                {% for course in courses %}
+                <option
+                  value="{{ course.id }}"
+                  {% if ta_profile and course.id in ta_experiences.get(ta_profile.id, []) %}selected{% endif %}
+                >
+                  {{ course.code }} — {{ course.title }}
+                </option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-outline-primary" type="submit">Update role</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No accounts have been created yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
