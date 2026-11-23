@@ -10,4 +10,6 @@ class Assignment(SQLModel, table=True):
     ta_id: int = Field(index=True)
     course_id: int = Field(index=True)
     weekly_hours: int
+    start_week: int = Field(default=1, ge=1)
+    end_week: int = Field(default=1, ge=1)
     created_at: str

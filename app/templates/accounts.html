@@ -34,18 +34,23 @@
     </div>
     <div class="mb-3" id="create-experience-field" hidden>
       <label class="form-label" for="experience_course_ids">Prior course experience (for TA accounts)</label>
-      <select
-        class="form-select"
-        id="experience_course_ids"
-        name="experience_course_ids"
-        multiple
-        size="4"
-      >
+      <div id="experience_course_ids" class="border rounded p-2">
         {% for course in courses %}
-        <option value="{{ course.id }}">{{ course.code }} — {{ course.title }}</option>
+        <div class="form-check">
+          <input
+            class="form-check-input create-experience-course"
+            id="create-experience-course-{{ course.id }}"
+            name="experience_course_ids"
+            type="checkbox"
+            value="{{ course.id }}"
+          >
+          <label class="form-check-label" for="create-experience-course-{{ course.id }}">
+            {{ course.code }} — {{ course.title }}
+          </label>
+        </div>
         {% endfor %}
-      </select>
-      <div class="form-text">Optional. Select courses where the TA has prior experience.</div>
+      </div>
+      <div class="form-text">Optional. Select any number of courses where the TA has prior experience.</div>
     </div>
     <button class="btn btn-primary" type="submit">Create account</button>
   </form>
@@ -53,11 +58,13 @@
 <script>
   const createRole = document.getElementById("create-role");
   const createExperienceField = document.getElementById("create-experience-field");
-  const createExperienceSelect = document.getElementById("experience_course_ids");
+  const createExperienceCourses = document.querySelectorAll(".create-experience-course");
   function updateCreateExperienceField() {
     const isTa = createRole.value === "ta";
     createExperienceField.hidden = !isTa;
-    createExperienceSelect.disabled = !isTa;
+    createExperienceCourses.forEach((course) => {
+      course.disabled = !isTa;
+    });
   }
   createRole.addEventListener("change", updateCreateExperienceField);
   updateCreateExperienceField();
@@ -104,22 +111,24 @@
                 placeholder="TA full name"
                 value="{{ ta_profile.name if ta_profile else account.username }}"
               >
-              <select
-                class="form-select"
-                name="experience_course_ids"
-                aria-label="Prior course experience for {{ account.username }}"
-                multiple
-                size="3"
-              >
+              <fieldset class="border rounded p-2">
+                <legend class="fs-6">Prior course experience</legend>
                 {% for course in courses %}
-                <option
+                <div class="form-check">
+                <input
+                  class="form-check-input"
+                  id="account-{{ account.id }}-experience-{{ course.id }}"
                   value="{{ course.id }}"
-                  {% if ta_profile and course.id in ta_experiences.get(ta_profile.id, []) %}selected{% endif %}
+                  name="experience_course_ids"
+                  type="checkbox"
+                  {% if ta_profile and course.id in ta_experiences.get(ta_profile.id, []) %}checked{% endif %}
                 >
+                <label class="form-check-label" for="account-{{ account.id }}-experience-{{ course.id }}">
                   {{ course.code }} — {{ course.title }}
-                </option>
+                </label>
+                </div>
                 {% endfor %}
-              </select>
+              </fieldset>
               <button class="btn btn-outline-primary" type="submit">Update role</button>
             </form>
           </td>

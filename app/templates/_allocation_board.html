@@ -62,6 +62,7 @@
             {% else %}
             Unknown course
             {% endif %}
+
           </td>
           <td>{{ assignment.weekly_hours }}</td>
         </tr>
@@ -103,4 +104,26 @@
   <p>No teaching assistants are available.</p>
   {% endif %}
 </section>
+
+{% if course_totals %}
+<section class="mb-4" aria-labelledby="course-totals-title">
+  <h2 id="course-totals-title">Hours by course</h2>
+  <ul>
+    {% for item in course_totals %}
+    <li>{{ item.course }}: {{ item.total_hours }} hours</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if ta_totals %}
+<section class="mb-4" aria-labelledby="ta-totals-title">
+  <h2 id="ta-totals-title">Hours by TA</h2>
+  <ul>
+    {% for item in ta_totals %}
+    <li>TA {{ item.ta_id }}: {{ item.total_hours }} hours</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% endif %}

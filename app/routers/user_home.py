@@ -10,7 +10,7 @@ from . import router, templates
 
 @router.get("/app", response_class=HTMLResponse)
 async def user_home_view(request: Request, user: AuthDep):
-    if user.role not in {"hod", "admin"}:
+    if user.role not in {"hod", "admin", "deputy"}:
         return templates.TemplateResponse(
             request=request,
             name="app.html",
@@ -63,6 +63,8 @@ async def create_manual_assignment(
     ta_id: int = Form(...),
     course_id: int = Form(...),
     weekly_hours: int = Form(...),
+    start_week: int = Form(1),
+    end_week: int = Form(1),
 ):
     if user.role not in {"hod", "admin"}:
         raise HTTPException(
@@ -80,6 +82,8 @@ async def create_manual_assignment(
         ta_id=ta_id,
         course_id=course_id,
         weekly_hours=weekly_hours,
+        start_week=start_week,
+        end_week=end_week,
     )
     if result["ok"]:
         flash(request, "Assignment created successfully.")

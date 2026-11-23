@@ -246,3 +246,91 @@ def test_persistence_failure_rolls_back_assignment_and_budget(allocation_db, mon
     with Session(allocations.engine) as session:
         assert len(session.exec(select(Assignment)).all()) == 0
         assert session.get(Department, 1).budget_hours_remaining == 62
+
+
+def test_suggestion_is_ranked_without_persisting(allocation_db):
+    hod_id, course_id, _ = allocation_db
+
+    before = allocations.list_assignments()
+    result = allocations.suggest_auto(
+        hod_id,
+        course_id=course_id,
+        weekly_hours=3,
+        mode="least_loaded",
+    )
+
+    assert result["ok"] is True
+    assert [ta["id"] for ta in result["suggestions"]] == [1, 2, 3]
+    assert all("reason" in ta for ta in result["suggestions"])
+    assert allocations.list_assignments() == before
+
+
+def test_multi_week_assignment_uses_total_budget_and_overlapping_capacity(
+    allocation_db,
+):
+    hod_id, course_id, tas = allocation_db
+
+    result = allocations.assign_manual(
+        hod_id,
+        ta_id=tas[0].id,
+        course_id=course_id,
+        weekly_hours=5,
+        start_week=2,
+        end_week=3,
+    )
+
+    assert result["ok"] is True
+    assert result["assignment"]["total_hours"] == 10
+    with Session(allocations.engine) as session:
+        assert session.get(Department, 1).budget_hours_remaining == 52
+
+
+def test_ending_assignment_refunds_future_weeks(allocation_db):
+    hod_id, course_id, tas = allocation_db
+    created = allocations.assign_manual(
+        hod_id,
+        ta_id=tas[0].id,
+        course_id=course_id,
+        weekly_hours=5,
+        start_week=1,
+        end_week=4,
+    )
+
+    result = allocations.end_assignment(hod_id, created["assignment"]["id"], 2)
+
+    assert result["ok"] is True
+    assert result["refunded_hours"] == 10
+    assert result["assignment"]["end_week"] == 2
+    with Session(allocations.engine) as session:
+        assert session.get(Department, 1).budget_hours_remaining == 52
+
+
+def test_round_robin_cursor_survives_service_reload(allocation_db):
+    hod_id, course_id, _ = allocation_db
+
+    first = allocations.assign_auto(
+        hod_id, course_id=course_id, weekly_hours=1, mode="round_robin"
+    )
+    second = allocations.assign_auto(
+        hod_id, course_id=course_id, weekly_hours=1, mode="round_robin"
+    )
+
+    assert first["assignment"]["ta_id"] == 1
+    assert second["assignment"]["ta_id"] == 2
+
+
+def test_assignments_csv_contains_period_and_total(allocation_db):
+    hod_id, course_id, tas = allocation_db
+    allocations.assign_manual(
+        hod_id,
+        ta_id=tas[0].id,
+        course_id=course_id,
+        weekly_hours=4,
+        start_week=2,
+        end_week=4,
+    )
+
+    csv_text = allocations.assignments_csv()
+
+    assert "start_week,end_week,total_hours" in csv_text
+    assert f"{course_id},{tas[0].id},4,2,4,12" in csv_text

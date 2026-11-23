@@ -2,7 +2,7 @@
 {% block title %}Home · LoadBoard{% endblock %}
 
 {% block subpage_content %}
-{% if user.role in ["hod", "admin"] %}
+{% if user.role in ["hod", "admin", "deputy"] %}
 <h1>Allocation overview</h1>
 <p>View current TA assignments and remaining department capacity.</p>
 {% include "_allocation_board.html" %}

@@ -32,19 +32,27 @@
         <label class="form-label" for="experience_course_ids">
           Prior course experience (optional; for TA accounts)
         </label>
-        <select
-          class="form-select"
+        <div
+          class="border rounded p-2"
           id="experience_course_ids"
-          name="experience_course_ids"
-          multiple
-          size="4"
           aria-describedby="experience-help"
         >
           {% for course in courses %}
-          <option value="{{ course.id }}">{{ course.code }} — {{ course.title }}</option>
+          <div class="form-check">
+            <input
+              class="form-check-input experience-course"
+              id="experience-course-{{ course.id }}"
+              name="experience_course_ids"
+              type="checkbox"
+              value="{{ course.id }}"
+            >
+            <label class="form-check-label" for="experience-course-{{ course.id }}">
+              {{ course.code }} — {{ course.title }}
+            </label>
+          </div>
           {% endfor %}
-        </select>
-        <div class="form-text" id="experience-help">Select every course where you have prior experience.</div>
+        </div>
+        <div class="form-text" id="experience-help">Check every course where you have prior experience.</div>
       </div>
       <div class="mb-3">
         <label class="form-label" for="password">Password</label>
@@ -64,11 +72,13 @@
 <script>
   const accountType = document.getElementById("role");
   const experienceField = document.getElementById("experience-field");
-  const experienceSelect = document.getElementById("experience_course_ids");
+  const experienceCourses = document.querySelectorAll(".experience-course");
   function updateExperienceField() {
     const isTa = accountType.value === "ta";
     experienceField.hidden = !isTa;
-    experienceSelect.disabled = !isTa;
+    experienceCourses.forEach((course) => {
+      course.disabled = !isTa;
+    });
   }
   accountType.addEventListener("change", updateExperienceField);
   updateExperienceField();

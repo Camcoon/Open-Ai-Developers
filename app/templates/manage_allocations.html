@@ -39,6 +39,16 @@
         required
       >
     </div>
+    <div class="row">
+      <div class="col mb-3">
+        <label class="form-label" for="start_week">Start week</label>
+        <input class="form-control" id="start_week" name="start_week" type="number" min="1" value="1" required>
+      </div>
+      <div class="col mb-3">
+        <label class="form-label" for="end_week">End week</label>
+        <input class="form-control" id="end_week" name="end_week" type="number" min="1" value="1" required>
+      </div>
+    </div>
     <button class="btn btn-primary" type="submit">Assign TA</button>
   </form>
   {% else %}

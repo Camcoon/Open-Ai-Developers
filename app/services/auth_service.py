@@ -61,7 +61,7 @@ class AuthService:
         name: str = "",
         experience_course_ids: list[int] | None = None,
     ):
-        if role not in {"regular_user", "ta", "hod", "admin"}:
+        if role not in {"regular_user", "ta", "deputy", "hod", "admin"}:
             raise ValueError("Select a valid account role")
         if not username.strip() or not email.strip() or not password:
             raise ValueError("Username, email, and password are required")

@@ -924,3 +924,60 @@ It records:
 
 No PR reviewer or merge commit is invented: they remain explicitly marked as
 pending until GitHub review and merge occur.
+
+## Sprint2 final refinements
+
+Date: 2026-11-22
+
+The final refinement pass completed the remaining allocation features identified
+in the Sprint 1 requirements:
+
+- Assignments now store `start_week` and `end_week`. Budget cost is calculated
+  as weekly hours multiplied by the number of covered weeks.
+- Weekly capacity checks apply only to assignments whose week ranges overlap.
+- HOD/admin users can edit an assignment or end it early. Ending an assignment
+  refunds only the future weeks.
+- `POST /api/assignments/suggest` returns an ordered, reasoned candidate list
+  without creating an assignment.
+- Round-robin position is stored in the department row, so it survives process
+  restarts instead of living in a module global.
+- `POST /api/auth/login` now returns a JWT bearer token for allocation API
+  clients. The existing `X-User-Id` header remains as a backwards-compatible
+  migration path for existing integrations.
+- Deputies were added as a read-only role for the review board.
+- Review data now includes course totals, TA totals, assignment periods, and
+  total semester hours.
+- `GET /api/assignments/export.csv` exports assignment periods and total hours.
+- Database startup migration adds the new assignment and round-robin columns to
+  existing databases.
+
+Decisions:
+
+1. Existing weekly-only assignments default to week 1 through week 1 so current
+   seeded data and integrations remain valid while supporting semester periods.
+2. Suggestions do not advance the round-robin cursor; only a persisted
+   assignment advances it.
+3. Budget and assignment changes remain committed together for assignment
+   writes, while failed validation performs no write.
+
+Validation:
+
+```text
+python -m pytest tests -q
+72 passed, 53 warnings
+```
+
+The warnings are existing FastAPI/Starlette/httpx deprecation warnings.
+
+### Account experience selection refinement
+
+The managed-account form previously used a native multi-select control for TA
+course experience. This was easy to interpret as single-select because selecting
+additional options requires platform-specific modifier keys. It now renders
+each course as an independent checkbox while retaining the shared
+`experience_course_ids` field name, so any number of courses can be submitted
+and persisted in one account-creation request. The existing-account role form
+uses the same checkbox behavior.
+
+The public registration form was updated as well, so TA applicants can select
+multiple prior-experience courses using the same checkbox-based interaction.

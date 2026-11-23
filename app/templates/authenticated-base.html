@@ -7,7 +7,7 @@
     <nav class="app-topnav" aria-label="App">
       <a class="{{ 'is-active' if request.url.path.startswith('/app') }}"
         href="{{ url_for('user_home_view') }}">Home</a>
-      {% if user and user.role in ["hod", "admin"] %}
+      {% if user and user.role in ["hod", "admin", "deputy"] %}
       <a class="{{ 'is-active' if request.url.path.startswith('/allocations') }}"
         href="{{ url_for('manage_allocations_view') }}">Manage Assignments</a>
       <a class="{{ 'is-active' if request.url.path.startswith('/manage-courses') }}"
