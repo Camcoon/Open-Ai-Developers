@@ -17,7 +17,7 @@ from app.services.allocation_auth import get_user
 #recently edited
 from app.services.capacity_guard import CapacityGuard
 from app.services.constants import WEEKLY_HOUR_CAP
-from app.services.strategies import MODES, auto_select_ta
+from app.services.strategies import MODES, auto_select_ta, get_strategy
 
 _RR_CURSOR = 0
 
@@ -141,7 +141,6 @@ def assign_manual(
     }
 
 
-#recently edited
 def assign_auto(
     hod_id: int, *, course_id: int, weekly_hours: int, mode: str
 ) -> dict[str, Any]:
@@ -149,16 +148,25 @@ def assign_auto(
     user = get_user(hod_id)
     if not user or user["role"] != "hod":
         return {"ok": False, "error": "hod only"}
-    if mode not in MODES:
-        # still call strategy — demonstrates fallback defect
-        pass
+    if weekly_hours <= 0:
+        return {"ok": False, "error": "hours must be positive"}
+
+    try:
+        get_strategy(mode)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
 
     with Session(engine) as session:
         course_row = session.get(Course, course_id)
         if course_row is None:
             return {"ok": False, "error": "course not found"}
         course = course_row.model_dump()
-        budget = _budget_remaining(session)
+
+        dept = session.get(Department, 1)
+        if dept is None:
+            return {"ok": False, "error": "department not found"}
+        budget = int(dept.budget_hours_remaining)
+
         try:
             CapacityGuard.validate_request(
                 hours=weekly_hours,
@@ -178,31 +186,54 @@ def assign_auto(
         if not eligible_tas:
             return {"ok": False, "error": "no TAs have sufficient weekly capacity"}
 
-    pick = auto_select_ta(
-        mode=mode,
-        course=course,
-        tas=eligible_tas,
-        experience=exp,
-        load_by_ta=load,
-        budget_remaining=budget,
-        hours=weekly_hours,
-        round_robin_cursor=_RR_CURSOR,
-    )
-    if not pick.get("ok"):
-        return pick
+        pick = auto_select_ta(
+            mode=mode,
+            course=course,
+            tas=eligible_tas,
+            experience=exp,
+            load_by_ta=load,
+            budget_remaining=budget,
+            hours=weekly_hours,
+            round_robin_cursor=_RR_CURSOR,
+        )
+        if not pick.get("ok"):
+            return pick
 
-    # The manual service rechecks request and TA capacity immediately before writing.
-    result = assign_manual(
-        hod_id,
-        ta_id=pick["ta_id"],
-        course_id=course_id,
-        weekly_hours=weekly_hours,
-    )
-    if result.get("ok"):
-        result["auto"] = pick
-        if "next_cursor" in pick:
-            _RR_CURSOR = int(pick["next_cursor"])
-    return result
+        ta_id = int(pick["ta_id"])
+        current_load = load.get(ta_id, 0)
+        try:
+            CapacityGuard.validate_ta(current_load=current_load, hours=weekly_hours)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+        row = Assignment(
+            ta_id=ta_id,
+            course_id=course_id,
+            weekly_hours=weekly_hours,
+            created_at=_now(),
+        )
+        dept.budget_hours_remaining -= weekly_hours
+        session.add(row)
+        session.add(dept)
+        try:
+            session.commit()
+            session.refresh(row)
+        except Exception:
+            session.rollback()
+            return {"ok": False, "error": "allocation could not be persisted"}
+
+        assignment = row.model_dump()
+
+    if "next_cursor" in pick:
+        _RR_CURSOR = int(pick["next_cursor"])
+
+    return {
+        "ok": True,
+        "assignment": assignment,
+        "auto": pick,
+        "over_cap": False,
+        "over_budget": False,
+    }
 
 
 def review_board() -> dict[str, Any]:
