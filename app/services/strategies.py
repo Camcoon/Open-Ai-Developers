@@ -5,8 +5,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from app.services.constants import WEEKLY_HOUR_CAP
-
 Candidate = dict[str, Any]
 
 
@@ -101,73 +99,3 @@ def get_strategy(mode: str) -> RankingStrategy:
             f"Unsupported allocation mode: {mode}. "
             f"Supported modes: {supported}"
         ) from None
-
-
-def auto_select_ta(
-    *,
-    mode: str,
-    course: dict[str, Any],
-    tas: list[dict[str, Any]],
-    experience: set[tuple[int, int]],
-    load_by_ta: dict[int, int],
-    budget_remaining: int,
-    hours: int,
-    round_robin_cursor: int = 0,
-) -> dict[str, Any]:
-    """Compatibility wrapper for the existing allocation service.
-
-    Phase 6 integration should replace this wrapper with the CapacityGuard
-    and Strategy classes directly. This wrapper remains only so the starter
-    service can continue importing the module during independent development.
-    """
-    if hours <= 0:
-        return {"ok": False, "error": "hours must be positive"}
-    if hours > budget_remaining:
-        return {"ok": False, "error": "exceeds department budget"}
-
-    candidates = [
-        ta
-        for ta in tas
-        if load_by_ta.get(ta["id"], 0) + hours <= WEEKLY_HOUR_CAP
-    ]
-    if not candidates:
-        return {"ok": False, "error": "no eligible TAs"}
-
-    try:
-        strategy = get_strategy(mode)
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc)}
-
-    ranked = strategy.rank(
-        candidates,
-        course_id=course["id"],
-        experience_pairs=experience,
-        load_by_ta=load_by_ta,
-    )
-    if not ranked:
-        return {"ok": False, "error": "no eligible TAs"}
-
-    if mode == "round_robin":
-        cursor = round_robin_cursor % len(ranked)
-        chosen = ranked[cursor]
-        next_cursor = cursor + 1
-    else:
-        chosen = ranked[0]
-        next_cursor = None
-
-    projected_load = load_by_ta.get(chosen["id"], 0) + hours
-    result = {
-        "ok": True,
-        "ta_id": chosen["id"],
-        "mode": mode,
-        "reason": (
-            "prior course experience"
-            if (chosen["id"], course["id"]) in experience
-            else "eligible candidate"
-        ),
-        "projected_load": projected_load,
-        "cap": WEEKLY_HOUR_CAP,
-    }
-    if next_cursor is not None:
-        result["next_cursor"] = next_cursor
-    return result

@@ -3,6 +3,7 @@ import pytest
 from app.services.strategies import (
     ExperienceFirstStrategy,
     LeastLoadedStrategy,
+    RoundRobinStrategy,
     get_strategy,
 )
 
@@ -134,3 +135,33 @@ def test_ranking_does_not_mutate_original_candidate_order():
     )
 
     assert candidates == original
+
+
+def test_round_robin_preserves_existing_candidate_order(candidates):
+    ranked = RoundRobinStrategy().rank(
+        candidates,
+        course_id=10,
+        experience_pairs={(2, 10)},
+        load_by_ta={1: 15, 2: 0, 3: 5},
+    )
+
+    assert [ta["id"] for ta in ranked] == [1, 2, 3]
+
+
+def test_round_robin_does_not_mutate_original_candidate_order(candidates):
+    original = list(candidates)
+
+    ranked = RoundRobinStrategy().rank(
+        candidates,
+        course_id=10,
+        experience_pairs=set(),
+        load_by_ta={1: 1, 2: 2, 3: 3},
+    )
+
+    assert ranked == candidates
+    assert ranked is not candidates
+    assert candidates == original
+
+
+def test_get_strategy_returns_round_robin():
+    assert isinstance(get_strategy("round_robin"), RoundRobinStrategy)
