@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status is 200', function () { pm.response.to.have.status(200); });
+      pm.test('Response is a user array', function () { pm.expect(pm.response.json()).to.be.an('array'); });
+      pm.test('Users contain expected fields', function () {
+          pm.response.json().forEach(function (user) {
+              pm.expect(user).to.have.all.keys('id', 'username', 'email');
+          });
+      });
+    language: text/javascript
+order: 2000

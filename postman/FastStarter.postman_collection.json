@@ -1,87 +1,199 @@
 {
   "info": {
     "_postman_id": "7c1e1d3c-4b4a-4a6b-a8db-0a4b5f6c7d8e",
-    "name": "FastStarter API",
-    "description": "Requests for the FastStarter health check and JSON API endpoints.",
+    "name": "TA Allocations API",
+    "description": "Postman collection for the TA Allocations API. Run `python manage.py init` before the first run, then execute Authentication > Login as HOD before allocation requests.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://127.0.0.1:5000",
-      "type": "string"
-    }
+    { "key": "baseUrl", "value": "http://127.0.0.1:5000", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "xUserId", "value": "", "type": "string" },
+    { "key": "taId", "value": "1", "type": "string" },
+    { "key": "courseId", "value": "1", "type": "string" },
+    { "key": "assignmentId", "value": "1", "type": "string" }
   ],
   "item": [
     {
-      "name": "Health",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/health",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "health"
-          ]
-        },
-        "description": "Verify that the FastStarter service is running."
-      },
-      "event": [
+      "name": "System",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Status is 200', function () {",
-              "    pm.response.to.have.status(200);",
-              "});",
-              "pm.test('Response reports healthy', function () {",
-              "    pm.expect(pm.response.json()).to.eql({ ok: true });",
-              "});"
-            ]
-          }
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] },
+            "description": "Verify that the service is running."
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('Service is healthy', function () {",
+            "    const body = pm.response.json();",
+            "    pm.expect(body.ok).to.eql(true);",
+            "    pm.expect(body.scenario).to.eql('ta-allocations');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/users", "host": ["{{baseUrl}}"], "path": ["api", "users"] }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('Response is a user array', function () { pm.expect(pm.response.json()).to.be.an('array'); });",
+            "pm.test('Users contain expected fields', function () {",
+            "    pm.response.json().forEach(function (user) {",
+            "        pm.expect(user).to.have.all.keys('id', 'username', 'email');",
+            "    });",
+            "});"
+          ] } }]
         }
       ]
     },
     {
-      "name": "List users",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/users",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "users"
-          ]
-        },
-        "description": "Return all registered users. Run `python manage.py init` first to create the demo users."
-      },
-      "event": [
+      "name": "Authentication",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Status is 200', function () {",
-              "    pm.response.to.have.status(200);",
-              "});",
-              "pm.test('Response is a user array', function () {",
-              "    pm.expect(pm.response.json()).to.be.an('array');",
-              "});",
-              "pm.test('Users contain expected fields', function () {",
-              "    pm.response.json().forEach(function (user) {",
-              "        pm.expect(user).to.have.all.keys('id', 'username', 'email');",
-              "    });",
-              "});"
-            ]
-          }
+          "name": "Login as HOD",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"hod@example.com\",\n  \"password\": \"hod-dev\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "const body = pm.response.json();",
+            "pm.collectionVariables.set('accessToken', body.access_token);",
+            "pm.collectionVariables.set('xUserId', String(body.user.id));",
+            "pm.test('Token and user are returned', function () {",
+            "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+            "    pm.expect(body.user.role).to.eql('hod');",
+            "});"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Allocation Data",
+      "item": [
+        {
+          "name": "List TAs",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": { "raw": "{{baseUrl}}/api/tas", "host": ["{{baseUrl}}"], "path": ["api", "tas"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "const tas = pm.response.json().tas;",
+            "if (tas && tas.length) pm.collectionVariables.set('taId', String(tas[0].id));"
+          ] } }]
+        },
+        {
+          "name": "List courses",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": { "raw": "{{baseUrl}}/api/courses", "host": ["{{baseUrl}}"], "path": ["api", "courses"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "const courses = pm.response.json().courses;",
+            "if (courses && courses.length) pm.collectionVariables.set('courseId', String(courses[0].id));"
+          ] } }]
+        },
+        {
+          "name": "Get course candidates",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": { "raw": "{{baseUrl}}/api/courses/{{courseId}}/candidates", "host": ["{{baseUrl}}"], "path": ["api", "courses", "{{courseId}}", "candidates"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('Candidates are returned', function () { pm.expect(pm.response.json().candidates).to.be.an('array'); });"
+          ] } }]
+        },
+        {
+          "name": "List assignments",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": { "raw": "{{baseUrl}}/api/assignments", "host": ["{{baseUrl}}"], "path": ["api", "assignments"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "const assignments = pm.response.json().assignments;",
+            "if (assignments && assignments.length) pm.collectionVariables.set('assignmentId', String(assignments[0].id));"
+          ] } }]
+        },
+        {
+          "name": "Review board",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": { "raw": "{{baseUrl}}/api/review", "host": ["{{baseUrl}}"], "path": ["api", "review"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+          ] } }]
+        },
+        {
+          "name": "Export assignments CSV",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": { "raw": "{{baseUrl}}/api/assignments/export.csv", "host": ["{{baseUrl}}"], "path": ["api", "assignments", "export.csv"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('Response is CSV', function () { pm.expect(pm.response.headers.get('Content-Type')).to.include('text/csv'); });"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Allocation Actions",
+      "item": [
+        {
+          "name": "Suggest allocation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "X-User-Id", "value": "{{xUserId}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"course_id\": {{courseId}},\n  \"weekly_hours\": 6,\n  \"mode\": \"experience_first\",\n  \"start_week\": 1,\n  \"end_week\": 12\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/assignments/suggest", "host": ["{{baseUrl}}"], "path": ["api", "assignments", "suggest"] }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Suggestion or capacity constraint is returned', function () { pm.expect([200, 400]).to.include(pm.response.code); });"
+          ] } }]
+        },
+        {
+          "name": "Create manual assignment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "X-User-Id", "value": "{{xUserId}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"ta_id\": {{taId}},\n  \"course_id\": {{courseId}},\n  \"weekly_hours\": 6,\n  \"start_week\": 1,\n  \"end_week\": 12\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/assignments/manual", "host": ["{{baseUrl}}"], "path": ["api", "assignments", "manual"] }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Request succeeds', function () { pm.expect([200, 400]).to.include(pm.response.code); });"
+          ] } }]
+        },
+        {
+          "name": "Run auto allocation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "X-User-Id", "value": "{{xUserId}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"course_id\": {{courseId}},\n  \"weekly_hours\": 6,\n  \"mode\": \"least_loaded\",\n  \"start_week\": 1,\n  \"end_week\": 12\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/assignments/auto", "host": ["{{baseUrl}}"], "path": ["api", "assignments", "auto"] }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Request succeeds', function () { pm.expect([200, 400]).to.include(pm.response.code); });"
+          ] } }]
+        },
+        {
+          "name": "Edit assignment",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "X-User-Id", "value": "{{xUserId}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"weekly_hours\": 6,\n  \"start_week\": 1,\n  \"end_week\": 12\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/assignments/{{assignmentId}}", "host": ["{{baseUrl}}"], "path": ["api", "assignments", "{{assignmentId}}"] }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Request succeeds', function () { pm.expect([200, 400]).to.include(pm.response.code); });"
+          ] } }]
+        },
+        {
+          "name": "End assignment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "X-User-Id", "value": "{{xUserId}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"end_week\": 12\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/assignments/{{assignmentId}}/end", "host": ["{{baseUrl}}"], "path": ["api", "assignments", "{{assignmentId}}", "end"] }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Request succeeds', function () { pm.expect([200, 400]).to.include(pm.response.code); });"
+          ] } }]
         }
       ]
     }

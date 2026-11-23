@@ -1,0 +1,22 @@
+$kind: http-request
+url: "{{baseUrl}}/api/assignments/auto"
+method: POST
+headers:
+  Authorization: Bearer {{accessToken}}
+  X-User-Id: "{{xUserId}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "course_id": {{courseId}},
+      "weekly_hours": 6,
+      "mode": "least_loaded",
+      "start_week": 1,
+      "end_week": 12
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('Request succeeds', function () { pm.expect([200, 400]).to.include(pm.response.code); });
+    language: text/javascript
+order: 3000

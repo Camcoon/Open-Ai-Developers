@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{baseUrl}}/api/tas"
+method: GET
+headers:
+  Authorization: Bearer {{accessToken}}
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status is 200', function () { pm.response.to.have.status(200); });
+      const tas = pm.response.json().tas;
+      if (tas && tas.length) pm.collectionVariables.set('taId', String(tas[0].id));
+    language: text/javascript
+order: 1000

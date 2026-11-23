@@ -1,0 +1,9 @@
+$kind: collection
+description: Postman collection for the TA Allocations API. Run `python manage.py init` before the first run, then execute Authentication > Login as HOD before allocation requests.
+variables:
+  baseUrl: http://127.0.0.1:5000
+  accessToken: ""
+  xUserId: ""
+  taId: "1"
+  courseId: "1"
+  assignmentId: "1"

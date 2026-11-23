@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{baseUrl}}/api/courses"
+method: GET
+headers:
+  Authorization: Bearer {{accessToken}}
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Status is 200', function () { pm.response.to.have.status(200); });
+      const courses = pm.response.json().courses;
+      if (courses && courses.length) pm.collectionVariables.set('courseId', String(courses[0].id));
+    language: text/javascript
+order: 2000

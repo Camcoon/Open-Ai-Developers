@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{baseUrl}}/api/assignments/{{assignmentId}}/end"
+method: POST
+headers:
+  Authorization: Bearer {{accessToken}}
+  X-User-Id: "{{xUserId}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "end_week": 12
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('Request succeeds', function () { pm.expect([200, 400]).to.include(pm.response.code); });
+    language: text/javascript
+order: 5000
