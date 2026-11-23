@@ -8,3 +8,4 @@ class Department(SQLModel, table=True):
 
     id: int = Field(default=1, primary_key=True)
     budget_hours_remaining: int
+    round_robin_cursor: int = Field(default=0)

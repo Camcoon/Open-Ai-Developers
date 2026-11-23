@@ -295,9 +295,12 @@ def test_admin_accounts_create_roles_and_preserve_ta_profile(reset_scenario):
     assert "Prior course experience" in page.text
 
     with Session(engine) as session:
-        experience_course_id = session.exec(
+        experience_course_ids = session.exec(
             select(Course.id).where(Course.code == "COMP1601")
-        ).one()
+        ).all()
+        experience_course_ids.append(
+            session.exec(select(Course.id).where(Course.code == "COMP2602")).one()
+        )
 
     created = client.post(
         "/accounts",
@@ -307,7 +310,7 @@ def test_admin_accounts_create_roles_and_preserve_ta_profile(reset_scenario):
             "email": "new-ta@example.com",
             "password": "initial-secret",
             "role": "ta",
-            "experience_course_ids": [str(experience_course_id)],
+            "experience_course_ids": [str(course_id) for course_id in experience_course_ids],
         },
         cookies={"access_token": admin_cookie},
         follow_redirects=False,
@@ -324,15 +327,19 @@ def test_admin_accounts_create_roles_and_preserve_ta_profile(reset_scenario):
             select(Ta).where(Ta.email == "new-ta@example.com")
         ).one()
         ta_experience = session.exec(
-            select(TaExperience).where(TaExperience.ta_id == ta_profile.id)
-        ).one()
+            select(TaExperience)
+            .where(TaExperience.ta_id == ta_profile.id)
+            .order_by(TaExperience.course_id)
+        ).all()
         assert ta_user.role == "ta"
         assert ta_user.password != "initial-secret"
         assert ta_profile.name == "New Teaching Assistant"
-        assert ta_experience.course_id == experience_course_id
+        assert [experience.course_id for experience in ta_experience] == sorted(
+            experience_course_ids
+        )
         ta_user_id = ta_user.id
         ta_profile_id = ta_profile.id
-        ta_experience_id = ta_experience.id
+        ta_experience_id = ta_experience[0].id
 
     changed_role = client.post(
         f"/accounts/{ta_user_id}/role",

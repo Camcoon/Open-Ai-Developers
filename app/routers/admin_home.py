@@ -34,7 +34,7 @@ async def admin_home_view(request: Request, user: AdminDep):
 
 @router.get("/review", response_class=HTMLResponse, name="review_board_view")
 async def review_board_view(request: Request, user: AuthDep):
-    if user.role not in {"hod", "admin"}:
+    if user.role not in {"hod", "admin", "deputy"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="HOD or admin only",
@@ -197,6 +197,7 @@ async def manage_accounts_view(
             "roles": (
                 ("regular_user", "Regular user"),
                 ("ta", "Teaching assistant"),
+                ("deputy", "Deputy"),
                 ("hod", "Head of department"),
                 ("admin", "Admin"),
             ),
@@ -249,7 +250,7 @@ def update_account_role(
     name: str = Form(""),
     experience_course_ids: Annotated[list[int] | None, Form()] = None,
 ):
-    allowed_roles = {"regular_user", "ta", "hod", "admin"}
+    allowed_roles = {"regular_user", "ta", "deputy", "hod", "admin"}
     account = db.get(User, account_id)
     if account is None:
         flash(request, "Account not found.", "danger")

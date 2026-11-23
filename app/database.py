@@ -60,6 +60,33 @@ def _ensure_ta_profile_columns(database_engine: Engine) -> None:
                 )
                 logger.info("Added missing tas.%s column", name)
 
+        if "assignments" in inspector.get_table_names():
+            assignment_columns = {
+                column["name"] for column in inspector.get_columns("assignments")
+            }
+            for name, definition in {
+                "start_week": "INTEGER NOT NULL DEFAULT 1",
+                "end_week": "INTEGER NOT NULL DEFAULT 1",
+            }.items():
+                if name not in assignment_columns:
+                    connection.execute(
+                        text(f"ALTER TABLE assignments ADD COLUMN {name} {definition}")
+                    )
+                    logger.info("Added missing assignments.%s column", name)
+
+        if "department" in inspector.get_table_names():
+            department_columns = {
+                column["name"] for column in inspector.get_columns("department")
+            }
+            if "round_robin_cursor" not in department_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE department ADD COLUMN "
+                        "round_robin_cursor INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+                logger.info("Added missing department.round_robin_cursor column")
+
 
 def drop_all() -> None:
     SQLModel.metadata.drop_all(bind=engine)

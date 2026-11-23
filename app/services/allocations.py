@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session, func, select
+from sqlmodel import Session, select
 
 from app.database import engine
 from app.models.assignment import Assignment
@@ -20,9 +22,6 @@ from app.services.constants import WEEKLY_HOUR_CAP
 from app.services.strategies import get_strategy
 
 # recently edited
-_RR_CURSOR = 0
-
-
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -42,16 +41,24 @@ def list_courses() -> list[dict[str, Any]]:
 def list_assignments() -> list[dict[str, Any]]:
     with Session(engine) as session:
         rows = session.exec(select(Assignment).order_by(Assignment.id)).all()
-        return [r.model_dump() for r in rows]
+        return [_assignment_dict(r) for r in rows]
 
 
-def _load_by_ta(session: Session) -> dict[int, int]:
-    rows = session.exec(
-        select(Assignment.ta_id, func.sum(Assignment.weekly_hours)).group_by(
-            Assignment.ta_id
-        )
-    ).all()
-    return {ta_id: int(total) for ta_id, total in rows}
+def _assignment_dict(row: Assignment) -> dict[str, Any]:
+    data = row.model_dump()
+    data["total_hours"] = row.weekly_hours * (row.end_week - row.start_week + 1)
+    return data
+
+
+def _load_by_ta(
+    session: Session, *, start_week: int = 1, end_week: int = 1
+) -> dict[int, int]:
+    assignments = session.exec(select(Assignment)).all()
+    load: dict[int, int] = {}
+    for assignment in assignments:
+        if assignment.start_week <= end_week and assignment.end_week >= start_week:
+            load[assignment.ta_id] = load.get(assignment.ta_id, 0) + assignment.weekly_hours
+    return load
 
 
 def _experience_set(session: Session) -> set[tuple[int, int]]:
@@ -65,12 +72,20 @@ def _budget_remaining(session: Session) -> int:
 
 
 # recently edited
-def _request_validation_error(hours: int, budget_remaining: int) -> str | None:
+def _request_validation_error(
+    hours: int,
+    budget_remaining: int,
+    *,
+    start_week: int = 1,
+    end_week: int = 1,
+) -> str | None:
     try:
         CapacityGuard.validate_request(
             hours=hours,
             budget_remaining=budget_remaining,
         )
+        if start_week < 1 or end_week < start_week:
+            raise ValueError("invalid assignment week range")
     except ValueError as exc:
         return str(exc)
     return None
@@ -89,18 +104,24 @@ def _persist_assignment(
     ta_id: int,
     course_id: int,
     weekly_hours: int,
+    start_week: int,
+    end_week: int,
     department: Department,
 ) -> Assignment:
-    current_load = _load_by_ta(session).get(ta_id, 0)
+    current_load = _load_by_ta(
+        session, start_week=start_week, end_week=end_week
+    ).get(ta_id, 0)
     CapacityGuard.validate_ta(current_load=current_load, hours=weekly_hours)
 
     row = Assignment(
         ta_id=ta_id,
         course_id=course_id,
         weekly_hours=weekly_hours,
+        start_week=start_week,
+        end_week=end_week,
         created_at=_now(),
     )
-    department.budget_hours_remaining -= weekly_hours
+    department.budget_hours_remaining -= weekly_hours * (end_week - start_week + 1)
     session.add(row)
     session.add(department)
     try:
@@ -234,7 +255,13 @@ def highlight_candidates(course_id: int) -> list[dict[str, Any]]:
 
 # recently edited
 def assign_manual(
-    hod_id: int, *, ta_id: int, course_id: int, weekly_hours: int
+    hod_id: int,
+    *,
+    ta_id: int,
+    course_id: int,
+    weekly_hours: int,
+    start_week: int = 1,
+    end_week: int = 1,
 ) -> dict[str, Any]:
     user = get_user(hod_id)
     if not user or user["role"] not in {"hod", "admin"}:
@@ -253,6 +280,8 @@ def assign_manual(
         request_error = _request_validation_error(
             weekly_hours,
             int(department.budget_hours_remaining),
+            start_week=start_week,
+            end_week=end_week,
         )
         if request_error:
             return {"ok": False, "error": request_error}
@@ -263,13 +292,15 @@ def assign_manual(
                 ta_id=ta_id,
                 course_id=course_id,
                 weekly_hours=weekly_hours,
+                start_week=start_week,
+                end_week=end_week,
                 department=department,
             )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         except (SQLAlchemyError, RuntimeError):
             return {"ok": False, "error": "allocation could not be persisted"}
-        assignment = row.model_dump()
+        assignment = _assignment_dict(row)
 
     return {
         "ok": True,
@@ -281,9 +312,14 @@ def assign_manual(
 
 # recently edited
 def assign_auto(
-    hod_id: int, *, course_id: int, weekly_hours: int, mode: str
+    hod_id: int,
+    *,
+    course_id: int,
+    weekly_hours: int,
+    mode: str,
+    start_week: int = 1,
+    end_week: int = 1,
 ) -> dict[str, Any]:
-    global _RR_CURSOR
     user = get_user(hod_id)
     if not user or user["role"] != "hod":
         return {"ok": False, "error": "hod only"}
@@ -305,13 +341,20 @@ def assign_auto(
             return {"ok": False, "error": "department not found"}
         budget = int(department.budget_hours_remaining)
 
-        request_error = _request_validation_error(weekly_hours, budget)
+        request_error = _request_validation_error(
+            weekly_hours,
+            budget,
+            start_week=start_week,
+            end_week=end_week,
+        )
         if request_error:
             return {"ok": False, "error": request_error}
 
         tas = [t.model_dump() for t in session.exec(select(Ta).order_by(Ta.id)).all()]
         experience = _experience_set(session)
-        load = _load_by_ta(session)
+        load = _load_by_ta(
+            session, start_week=start_week, end_week=end_week
+        )
         eligible_tas = CapacityGuard.eligible_candidates(
             tas=tas,
             load_by_ta=load,
@@ -331,7 +374,7 @@ def assign_auto(
 
         next_cursor = None
         if mode == "round_robin":
-            cursor = _RR_CURSOR % len(ranked_tas)
+            cursor = int(department.round_robin_cursor) % len(ranked_tas)
             selected_ta = ranked_tas[cursor]
             next_cursor = cursor + 1
         else:
@@ -345,16 +388,23 @@ def assign_auto(
                 ta_id=ta_id,
                 course_id=course_id,
                 weekly_hours=weekly_hours,
+                start_week=start_week,
+                end_week=end_week,
                 department=department,
             )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         except (SQLAlchemyError, RuntimeError):
             return {"ok": False, "error": "allocation could not be persisted"}
-        assignment = row.model_dump()
+        assignment = _assignment_dict(row)
 
     if next_cursor is not None:
-        _RR_CURSOR = next_cursor
+        with Session(engine) as session:
+            department = session.get(Department, 1)
+            if department is not None:
+                department.round_robin_cursor = next_cursor
+                session.add(department)
+                session.commit()
 
     pick = {
         "ok": True,
@@ -380,11 +430,86 @@ def assign_auto(
     }
 
 
+def suggest_auto(
+    hod_id: int,
+    *,
+    course_id: int,
+    weekly_hours: int,
+    mode: str,
+    start_week: int = 1,
+    end_week: int = 1,
+) -> dict[str, Any]:
+    """Return ranked eligible candidates without changing database state."""
+    user = get_user(hod_id)
+    if not user or user["role"] not in {"hod", "admin"}:
+        return {"ok": False, "error": "hod or admin only"}
+    try:
+        strategy = get_strategy(mode)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    with Session(engine) as session:
+        course = session.get(Course, course_id)
+        department = session.get(Department, 1)
+        if course is None:
+            return {"ok": False, "error": "course not found"}
+        if department is None:
+            return {"ok": False, "error": "department not found"}
+        error = _request_validation_error(
+            weekly_hours,
+            int(department.budget_hours_remaining),
+            start_week=start_week,
+            end_week=end_week,
+        )
+        if error:
+            return {"ok": False, "error": error}
+        tas = [t.model_dump() for t in session.exec(select(Ta).order_by(Ta.id)).all()]
+        load = _load_by_ta(session, start_week=start_week, end_week=end_week)
+        eligible = CapacityGuard.eligible_candidates(tas, load, weekly_hours)
+        ranked = strategy.rank(
+            eligible,
+            course_id=course_id,
+            experience_pairs=_experience_set(session),
+            load_by_ta=load,
+        )
+        if mode == "round_robin" and ranked:
+            cursor = int(department.round_robin_cursor) % len(ranked)
+            ranked = ranked[cursor:] + ranked[:cursor]
+        if not ranked:
+            return {"ok": False, "error": "no TAs have sufficient weekly capacity"}
+        experienced = _experience_set(session)
+        suggestions = [
+            {
+                **ta,
+                "reason": (
+                    "prior course experience"
+                    if (ta["id"], course_id) in experienced
+                    else "lowest eligible weekly workload"
+                    if mode == "least_loaded"
+                    else "next eligible candidate"
+                ),
+                "weekly_hours_used": load.get(ta["id"], 0),
+                "weekly_hours_remaining": WEEKLY_HOUR_CAP - load.get(ta["id"], 0),
+            }
+            for ta in ranked
+        ]
+    return {
+        "ok": True,
+        "mode": mode,
+        "course_id": course_id,
+        "weekly_hours": weekly_hours,
+        "start_week": start_week,
+        "end_week": end_week,
+        "suggestions": suggestions,
+    }
+
+
 # recently edited
 def review_board() -> dict[str, Any]:
     with Session(engine) as session:
         courses = [c.model_dump() for c in session.exec(select(Course)).all()]
-        assignments = [a.model_dump() for a in session.exec(select(Assignment)).all()]
+        assignment_rows = session.exec(select(Assignment).order_by(Assignment.id)).all()
+        assignments = [_assignment_dict(a) for a in assignment_rows]
         load = _load_by_ta(session)
         budget = _budget_remaining(session)
         tas = [t.model_dump() for t in session.exec(select(Ta)).all()]
@@ -398,10 +523,117 @@ def review_board() -> dict[str, Any]:
                 "weekly_hours_remaining": remaining,
             }
         )
+    course_totals: dict[int, dict[str, Any]] = {}
+    ta_totals: dict[int, dict[str, Any]] = {}
+    for assignment in assignments:
+        course = next((item for item in courses if item["id"] == assignment["course_id"]), None)
+        course_name = course["code"] if course else str(assignment["course_id"])
+        course_item = course_totals.setdefault(
+            assignment["course_id"],
+            {"course_id": assignment["course_id"], "course": course_name, "total_hours": 0},
+        )
+        course_item["total_hours"] += assignment["total_hours"]
+        ta_item = ta_totals.setdefault(
+            assignment["ta_id"],
+            {"ta_id": assignment["ta_id"], "total_hours": 0},
+        )
+        ta_item["total_hours"] += assignment["total_hours"]
     return {
         "courses": courses,
         "assignments": assignments,
         "tas": ta_view,
+        "course_totals": list(course_totals.values()),
+        "ta_totals": list(ta_totals.values()),
         "budget_hours_remaining": budget,
         "weekly_hour_cap": WEEKLY_HOUR_CAP,
     }
+
+
+def edit_assignment(
+    hod_id: int,
+    assignment_id: int,
+    *,
+    weekly_hours: int,
+    start_week: int,
+    end_week: int,
+) -> dict[str, Any]:
+    user = get_user(hod_id)
+    if not user or user["role"] not in {"hod", "admin"}:
+        return {"ok": False, "error": "hod or admin only"}
+    with Session(engine) as session:
+        row = session.get(Assignment, assignment_id)
+        department = session.get(Department, 1)
+        if row is None:
+            return {"ok": False, "error": "assignment not found"}
+        if department is None:
+            return {"ok": False, "error": "department not found"}
+        old_cost = row.weekly_hours * (row.end_week - row.start_week + 1)
+        new_cost = weekly_hours * (end_week - start_week + 1)
+        available_budget = int(department.budget_hours_remaining) + old_cost
+        error = _request_validation_error(
+            weekly_hours,
+            available_budget,
+            start_week=start_week,
+            end_week=end_week,
+        )
+        if error:
+            return {"ok": False, "error": error}
+        load = _load_by_ta(
+            session, start_week=start_week, end_week=end_week
+        )
+        load[row.ta_id] = max(0, load.get(row.ta_id, 0) - row.weekly_hours)
+        try:
+            CapacityGuard.validate_ta(load.get(row.ta_id, 0), weekly_hours)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        row.weekly_hours = weekly_hours
+        row.start_week = start_week
+        row.end_week = end_week
+        department.budget_hours_remaining = available_budget - new_cost
+        session.add(row)
+        session.add(department)
+        session.commit()
+        session.refresh(row)
+        return {"ok": True, "assignment": _assignment_dict(row)}
+
+
+def end_assignment(hod_id: int, assignment_id: int, end_week: int) -> dict[str, Any]:
+    user = get_user(hod_id)
+    if not user or user["role"] not in {"hod", "admin"}:
+        return {"ok": False, "error": "hod or admin only"}
+    with Session(engine) as session:
+        row = session.get(Assignment, assignment_id)
+        department = session.get(Department, 1)
+        if row is None:
+            return {"ok": False, "error": "assignment not found"}
+        if department is None:
+            return {"ok": False, "error": "department not found"}
+        if end_week < row.start_week or end_week > row.end_week:
+            return {"ok": False, "error": "invalid assignment end week"}
+        refund = row.weekly_hours * (row.end_week - end_week)
+        row.end_week = end_week
+        department.budget_hours_remaining += refund
+        session.add(row)
+        session.add(department)
+        session.commit()
+        session.refresh(row)
+        return {"ok": True, "assignment": _assignment_dict(row), "refunded_hours": refund}
+
+
+def assignments_csv() -> str:
+    board = review_board()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["course_id", "ta_id", "weekly_hours", "start_week", "end_week", "total_hours"])
+    for assignment in board["assignments"]:
+        writer.writerow(
+            [
+                assignment["course_id"],
+                assignment["ta_id"],
+                assignment["weekly_hours"],
+                assignment["start_week"],
+                assignment["end_week"],
+                assignment["total_hours"],
+            ]
+        )
+    return output.getvalue()
