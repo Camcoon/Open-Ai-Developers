@@ -1,0 +1,49 @@
+@startuml
+!pragma layout smetana
+skinparam shadowing false
+skinparam actorBorderColor #1B365D
+skinparam actorFontColor #1E232D
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #1B365D
+skinparam usecaseFontColor #1E232D
+skinparam rectangleBorderColor #1B365D
+skinparam rectangleBackgroundColor #F8FAFC
+skinparam arrowColor #1B365D
+
+actor "User / TA" as User_TA
+actor "Deputy" as Deputy
+actor "Head of Department" as Head_of_Department
+
+rectangle "TA Allocation System" {
+  usecase "Register / Sign in" as Register_Sign_in
+  usecase "View personal dashboard" as View_personal_dashboard
+  usecase "View allocation review" as View_allocation_review
+  usecase "Manage courses" as Manage_courses
+  usecase "Manage TA allocations" as Manage_TA_allocations
+  usecase "Edit / End allocation" as Edit_End_allocation
+  usecase "Export assignments" as Export_assignments
+  usecase "Manage accounts / system" as Manage_accounts_system
+}
+
+actor "Administrator" as Administrator
+
+User_TA --> Register_Sign_in
+Deputy --> Register_Sign_in
+Head_of_Department --> Register_Sign_in
+Register_Sign_in <-- Administrator
+User_TA --> View_personal_dashboard
+Deputy --> View_personal_dashboard
+Deputy --> View_allocation_review
+Head_of_Department --> View_allocation_review
+View_allocation_review <-- Administrator
+Head_of_Department --> Manage_courses
+Manage_courses <-- Administrator
+Head_of_Department --> Manage_TA_allocations
+Manage_TA_allocations <-- Administrator
+Head_of_Department --> Edit_End_allocation
+Edit_End_allocation <-- Administrator
+Head_of_Department --> Export_assignments
+Export_assignments <-- Administrator
+Manage_accounts_system <-- Administrator
+
+@enduml

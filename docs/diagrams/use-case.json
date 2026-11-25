@@ -1,0 +1,19 @@
+{
+  "system": "TA Allocation System",
+  "actors": [
+    { "name": "User / TA", "side": "left" },
+    { "name": "Deputy", "side": "left" },
+    { "name": "Head of Department", "side": "left" },
+    { "name": "Administrator", "side": "right" }
+  ],
+  "use_cases": [
+    { "name": "Register / Sign in", "actors": ["User / TA", "Deputy", "Head of Department", "Administrator"] },
+    { "name": "View personal dashboard", "actors": ["User / TA", "Deputy"] },
+    { "name": "View allocation review", "actors": ["Deputy", "Head of Department", "Administrator"] },
+    { "name": "Manage courses", "actors": ["Head of Department", "Administrator"] },
+    { "name": "Manage TA allocations", "actors": ["Head of Department", "Administrator"] },
+    { "name": "Edit / End allocation", "actors": ["Head of Department", "Administrator"] },
+    { "name": "Export assignments", "actors": ["Head of Department", "Administrator"] },
+    { "name": "Manage accounts / system", "actors": ["Administrator"] }
+  ]
+}
