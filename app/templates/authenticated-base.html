@@ -8,10 +8,12 @@
       <a class="{{ 'is-active' if request.url.path.startswith('/app') }}"
         href="{{ url_for('user_home_view') }}">Home</a>
       {% if user and user.role in ["hod", "admin", "deputy"] %}
+      {% if user.role in ["hod", "admin"] %}
       <a class="{{ 'is-active' if request.url.path.startswith('/allocations') }}"
         href="{{ url_for('manage_allocations_view') }}">Manage Assignments</a>
       <a class="{{ 'is-active' if request.url.path.startswith('/manage-courses') }}"
         href="{{ url_for('manage_courses_view') }}">Manage Courses</a>
+      {% endif %}
       <a class="{{ 'is-active' if request.url.path.startswith('/review') }}"
         href="{{ url_for('review_board_view') }}">Review Board</a>
       {% endif %}
