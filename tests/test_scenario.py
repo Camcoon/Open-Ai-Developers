@@ -254,25 +254,28 @@ def test_course_deletion_requires_admin_and_blocks_assigned_courses(reset_scenar
         assigned_course_id = assigned_course.id
         unused_course_id = unused_course.id
 
+    client.cookies.clear()
+    client.cookies.set("access_token", admin_cookie)
     blocked = client.post(
         f"/manage-courses/delete/{assigned_course_id}",
-        cookies={"access_token": admin_cookie},
         follow_redirects=True,
     )
     assert "Cannot delete a course with active assignments." in blocked.text
     with Session(engine) as session:
         assert session.get(Course, assigned_course_id) is not None
 
+    client.cookies.clear()
+    client.cookies.set("access_token", hod_cookie)
     denied = client.post(
         f"/manage-courses/delete/{unused_course_id}",
-        cookies={"access_token": hod_cookie},
         follow_redirects=False,
     )
     assert denied.status_code == 403
 
+    client.cookies.clear()
+    client.cookies.set("access_token", admin_cookie)
     deleted = client.post(
         f"/manage-courses/delete/{unused_course_id}",
-        cookies={"access_token": admin_cookie},
         follow_redirects=True,
     )
     assert "Course deleted successfully." in deleted.text
@@ -429,6 +432,41 @@ def test_app_home_renders_allocation_summary(reset_scenario):
     assert ">Review Board</a>" in nav
     assert 'href="/api/courses"' not in response.text
     assert 'href="/api/tas"' not in response.text
+
+
+def test_deputy_navigation_only_shows_permitted_pages(reset_scenario):
+    admin_cookie = _login_cookie("admin", "admin")
+    client.post(
+        "/accounts",
+        data={
+            "username": "deputy",
+            "email": "deputy@example.com",
+            "password": "deputy-password",
+            "role": "deputy",
+        },
+        cookies={"access_token": admin_cookie},
+        follow_redirects=False,
+    )
+    deputy_cookie = _login_cookie("deputy", "deputy-password")
+
+    home = client.get("/app", cookies={"access_token": deputy_cookie})
+    nav = home.text.split('<nav class="app-topnav"', 1)[1].split("</nav>", 1)[0]
+    assert home.status_code == 200
+    assert ">Manage Assignments</a>" not in nav
+    assert ">Manage Courses</a>" not in nav
+    assert ">Review Board</a>" in nav
+    review = client.get("/review", cookies={"access_token": deputy_cookie})
+    allocations_page = client.get(
+        "/allocations",
+        cookies={"access_token": deputy_cookie},
+    )
+    courses_page = client.get(
+        "/manage-courses",
+        cookies={"access_token": deputy_cookie},
+    )
+    assert review.status_code == 200
+    assert allocations_page.status_code == 403
+    assert courses_page.status_code == 403
 
 
 def test_ta_registration_rejects_unknown_experience_courses(reset_scenario):
