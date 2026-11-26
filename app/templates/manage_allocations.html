@@ -56,6 +56,101 @@
   {% endif %}
 </section>
 
+<section class="mb-4" aria-labelledby="automatic-assignment-title">
+  <h2 id="automatic-assignment-title">Automatic assignment</h2>
+  {% if tas and courses %}
+  <form method="post" action="{{ url_for('suggest_automatic_assignment') }}">
+    <div class="mb-3">
+      <label class="form-label" for="auto_course_id">Course</label>
+      <select class="form-select" id="auto_course_id" name="course_id" required>
+        {% for course in courses %}
+        <option value="{{ course.id }}" {% if selected_course_id == course.id %}selected{% endif %}>
+          {{ course.code }} - {{ course.title }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="ranking_mode">How should the TA be chosen?</label>
+      <select class="form-select" id="ranking_mode" name="mode" required>
+        <option value="experience_first" {% if selected_mode == "experience_first" %}selected{% endif %}>Prefer someone with experience in this course</option>
+        <option value="least_loaded" {% if selected_mode == "least_loaded" %}selected{% endif %}>Choose the TA with the lowest current workload</option>
+        <option value="round_robin" {% if selected_mode == "round_robin" or not selected_mode %}selected{% endif %}>Share assignments fairly by taking turns</option>
+      </select>
+      <div class="form-text">The choice affects which eligible TA is recommended; 20-hour and budget limits are always respected.</div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="auto_weekly_hours">Weekly hours</label>
+      <input
+        class="form-control"
+        id="auto_weekly_hours"
+        name="weekly_hours"
+        type="number"
+        min="1"
+        max="{{ weekly_hour_cap }}"
+        value="{{ selected_weekly_hours or '' }}"
+        required
+      >
+    </div>
+    <div class="row">
+      <div class="col mb-3">
+        <label class="form-label" for="auto_start_week">Start week</label>
+        <input class="form-control" id="auto_start_week" name="start_week" type="number" min="1" value="{{ selected_start_week or 1 }}" required>
+      </div>
+      <div class="col mb-3">
+        <label class="form-label" for="auto_end_week">End week</label>
+        <input class="form-control" id="auto_end_week" name="end_week" type="number" min="1" value="{{ selected_end_week or 1 }}" required>
+      </div>
+    </div>
+    <button class="btn btn-secondary" type="submit">Get ranked recommendations</button>
+  </form>
+
+  {% if recommendations %}
+  <div class="mt-4">
+    <h3 class="h5">Recommended TAs</h3>
+    {% if recommendations.suggestions %}
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead>
+          <tr>
+            <th scope="col">Rank</th>
+            <th scope="col">Teaching assistant</th>
+            <th scope="col">Current hours</th>
+            <th scope="col">Remaining hours</th>
+            <th scope="col">Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ta in recommendations.suggestions %}
+          <tr>
+            <td>{{ loop.index }}{% if loop.first %} (best){% endif %}</td>
+            <td>{{ ta.name }}</td>
+            <td>{{ ta.weekly_hours_used }}</td>
+            <td>{{ ta.weekly_hours_remaining }}</td>
+            <td>{{ ta.reason }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="{{ url_for('create_automatic_assignment') }}">
+      <input type="hidden" name="course_id" value="{{ recommendations.course_id }}">
+      <input type="hidden" name="weekly_hours" value="{{ recommendations.weekly_hours }}">
+      <input type="hidden" name="mode" value="{{ recommendations.mode }}">
+      <input type="hidden" name="start_week" value="{{ recommendations.start_week }}">
+      <input type="hidden" name="end_week" value="{{ recommendations.end_week }}">
+      <button class="btn btn-primary" type="submit">Allocate top recommendation</button>
+    </form>
+    {% else %}
+    <p>No eligible recommendations are available.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <p>Automatic assignments require at least one teaching assistant and one course.</p>
+  {% endif %}
+</section>
+
 <section class="mb-4" aria-labelledby="available-tas-title">
   <h2 id="available-tas-title">Available TAs</h2>
   {% if tas %}

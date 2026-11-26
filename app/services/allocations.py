@@ -80,12 +80,15 @@ def _request_validation_error(
     end_week: int = 1,
 ) -> str | None:
     try:
-        CapacityGuard.validate_request(
-            hours=hours,
-            budget_remaining=budget_remaining,
-        )
         if start_week < 1 or end_week < start_week:
             raise ValueError("invalid assignment week range")
+        total_hours = hours * (end_week - start_week + 1)
+        CapacityGuard.validate_request(
+            hours=total_hours,
+            budget_remaining=budget_remaining,
+        )
+        if hours <= 0:
+            raise ValueError("hours must be positive")
     except ValueError as exc:
         return str(exc)
     return None
@@ -321,8 +324,8 @@ def assign_auto(
     end_week: int = 1,
 ) -> dict[str, Any]:
     user = get_user(hod_id)
-    if not user or user["role"] != "hod":
-        return {"ok": False, "error": "hod only"}
+    if not user or user["role"] not in {"hod", "admin"}:
+        return {"ok": False, "error": "hod or admin only"}
 
     if weekly_hours <= 0:
         return {"ok": False, "error": "hours must be positive"}

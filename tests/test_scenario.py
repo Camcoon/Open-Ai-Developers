@@ -697,6 +697,48 @@ def test_manual_assignment_form_rejects_ta_over_weekly_cap(reset_scenario):
     assert client.get("/api/assignments").json()["assignments"] == before
 
 
+def test_auto_recommendation_form_shows_ranked_tas(reset_scenario):
+    cookie = _login_cookie("hod", "hod-dev")
+    before = client.get("/api/assignments").json()["assignments"]
+    response = client.post(
+        "/allocations/auto/suggest",
+        data={
+            "course_id": "1",
+            "weekly_hours": "2",
+            "mode": "least_loaded",
+            "start_week": "1",
+            "end_week": "1",
+        },
+        cookies={"access_token": cookie},
+    )
+
+    assert response.status_code == 200
+    assert "Recommended TAs" in response.text
+    assert "Allocate top recommendation" in response.text
+    assert client.get("/api/assignments").json()["assignments"] == before
+
+
+def test_auto_assignment_form_allocates_top_recommendation(reset_scenario):
+    cookie = _login_cookie("hod", "hod-dev")
+    response = client.post(
+        "/allocations/auto",
+        data={
+            "course_id": "1",
+            "weekly_hours": "2",
+            "mode": "least_loaded",
+            "start_week": "1",
+            "end_week": "1",
+        },
+        cookies={"access_token": cookie},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Automatic allocation created successfully." in response.text
+    board = client.get("/api/review").json()
+    assert board["assignments"][-1]["weekly_hours"] == 2
+
+
 # recently edited
 def _hod_user_id() -> int:
     response = client.post(
