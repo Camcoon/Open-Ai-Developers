@@ -1,0 +1,112 @@
+classDiagram
+    direction TB
+
+    namespace Models {
+        class User {
+            <<table>>
+            +int id
+            +str username
+            +EmailStr email
+            +str password
+            +str role
+        }
+
+        class Ta {
+            <<table>>
+            +int id
+            +str name
+            +str email
+            +Decimal hourly_rate
+            +float performance_rating
+        }
+
+        class Course {
+            <<table>>
+            +int id
+            +str code
+            +str title
+            +int budgeted_hours
+        }
+
+        class Department {
+            <<table>>
+            +int id
+            +int budget_hours_remaining
+            +int round_robin_cursor
+        }
+
+        class Assignment {
+            <<table>>
+            +int id
+            +int ta_id
+            +int course_id
+            +int weekly_hours
+            +int start_week
+            +int end_week
+            +str created_at
+        }
+
+        class TaExperience {
+            <<table>>
+            +int id
+            +int ta_id
+            +int course_id
+        }
+    }
+
+    namespace Services {
+        class AllocationOperations {
+            <<service>>
+            +list_tas() list
+            +list_courses() list
+            +manual_assign(...) Assignment
+            +auto_allocate(...) dict
+            +edit_assignment(...) Assignment
+            +end_assignment(...) dict
+        }
+
+        class CapacityGuard {
+            <<service>>
+            +validate_request(int hours, int budget_remaining) void
+            +validate_ta(int current_load, int hours) void
+            +eligible_candidates(list tas, dict load_by_ta, int hours) list
+        }
+
+        class RankingStrategy {
+            <<abstract>>
+            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
+        }
+    }
+
+    namespace Strategies {
+        class ExperienceFirstStrategy {
+            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
+        }
+
+        class LeastLoadedStrategy {
+            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
+        }
+
+        class RoundRobinStrategy {
+            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
+        }
+    }
+
+    User "1" --> "0..1" Ta : maps by role and email
+    Ta "1" --> "0..*" Assignment : receives
+    Course "1" --> "0..*" Assignment : receives
+    Department "1" --> "0..*" Assignment : constrains through budget
+
+    Ta "1" --> "0..*" TaExperience : has
+    Course "1" --> "0..*" TaExperience : prefers
+
+    AllocationOperations ..> CapacityGuard : enforces hard limits
+    AllocationOperations ..> RankingStrategy : selects ranking policy
+    AllocationOperations --> "0..*" Assignment : creates or edits
+    AllocationOperations --> "0..*" Department : updates remaining budget
+    AllocationOperations --> "0..*" Ta : evaluates eligible candidates
+    AllocationOperations --> "0..*" Course : allocates for
+
+    RankingStrategy <|-- ExperienceFirstStrategy : implements
+    RankingStrategy <|-- LeastLoadedStrategy : implements
+    RankingStrategy <|-- RoundRobinStrategy : implements
