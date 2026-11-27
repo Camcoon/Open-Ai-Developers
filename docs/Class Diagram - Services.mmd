@@ -1,0 +1,46 @@
+%%{init: {"layout": "elk", "themeVariables": {"fontSize": "13px"}}}%%
+classDiagram
+    direction TB
+
+    class AllocationService {
+        <<service module>>
+        +assign_manual(...) dict
+        +assign_auto(...) dict
+        +suggest_auto(...) dict
+        +edit_assignment(...) dict
+        +end_assignment(...) dict
+        +assignments_csv() str
+    }
+
+    class CapacityGuard {
+        <<service>>
+        +validate_request(...) void
+        +validate_ta(...) void
+        +eligible_candidates(...) list
+    }
+
+    class RankingStrategy {
+        <<abstract>>
+        +rank(...) list
+    }
+
+    class ExperienceFirstStrategy {
+        <<strategy>>
+        +rank(...) list
+    }
+
+    class LeastLoadedStrategy {
+        <<strategy>>
+        +rank(...) list
+    }
+
+    class RoundRobinStrategy {
+        <<strategy>>
+        +rank(...) list
+    }
+
+    AllocationService ..> CapacityGuard
+    AllocationService ..> RankingStrategy
+    RankingStrategy <|-- ExperienceFirstStrategy
+    RankingStrategy <|-- LeastLoadedStrategy
+    RankingStrategy <|-- RoundRobinStrategy

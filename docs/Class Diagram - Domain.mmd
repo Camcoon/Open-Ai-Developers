@@ -1,0 +1,61 @@
+%%{init: {"layout": "elk", "themeVariables": {"fontSize": "13px"}}}%%
+classDiagram
+    direction TB
+
+    class User {
+        <<SQLModel table>>
+        +id
+        +username
+        +email
+        +role
+    }
+
+    class Ta {
+        <<SQLModel table>>
+        +id
+        +name
+        +email
+        +hourly_rate
+        +performance_rating
+    }
+
+    class Course {
+        <<SQLModel table>>
+        +id
+        +code
+        +title
+        +budgeted_hours
+    }
+
+    class Department {
+        <<SQLModel table>>
+        +id = 1
+        +budget_hours_remaining
+        +round_robin_cursor
+    }
+
+    class Assignment {
+        <<SQLModel table>>
+        +id
+        +ta_id
+        +course_id
+        +weekly_hours
+        +start_week
+        +end_week
+        +created_at
+    }
+
+    class TaExperience {
+        <<SQLModel table>>
+        +id
+        +ta_id
+        +course_id
+    }
+
+    Ta "1" --> "0..*" Assignment
+    Course "1" --> "0..*" Assignment
+    Department "1" ..> "0..*" Assignment
+    Ta "1" --> "0..*" TaExperience
+    Course "1" --> "0..*" TaExperience
+    User "0..*" ..> Ta
+    User "0..*" ..> Department

@@ -1,112 +1,114 @@
+%%{init: {"layout": "elk", "themeVariables": {"fontSize": "11px"}}}%%
 classDiagram
     direction TB
 
-    namespace Models {
-        class User {
-            <<table>>
-            +int id
-            +str username
-            +EmailStr email
-            +str password
-            +str role
-        }
-
-        class Ta {
-            <<table>>
-            +int id
-            +str name
-            +str email
-            +Decimal hourly_rate
-            +float performance_rating
-        }
-
-        class Course {
-            <<table>>
-            +int id
-            +str code
-            +str title
-            +int budgeted_hours
-        }
-
-        class Department {
-            <<table>>
-            +int id
-            +int budget_hours_remaining
-            +int round_robin_cursor
-        }
-
-        class Assignment {
-            <<table>>
-            +int id
-            +int ta_id
-            +int course_id
-            +int weekly_hours
-            +int start_week
-            +int end_week
-            +str created_at
-        }
-
-        class TaExperience {
-            <<table>>
-            +int id
-            +int ta_id
-            +int course_id
-        }
+    class User {
+        <<SQLModel table>>
+        +int id
+        +str username
+        +EmailStr email
+        +str password
+        +str role
+        <<HOD, Deputy, TA>>
     }
 
-    namespace Services {
-        class AllocationOperations {
-            <<service>>
-            +list_tas() list
-            +list_courses() list
-            +manual_assign(...) Assignment
-            +auto_allocate(...) dict
-            +edit_assignment(...) Assignment
-            +end_assignment(...) dict
-        }
-
-        class CapacityGuard {
-            <<service>>
-            +validate_request(int hours, int budget_remaining) void
-            +validate_ta(int current_load, int hours) void
-            +eligible_candidates(list tas, dict load_by_ta, int hours) list
-        }
-
-        class RankingStrategy {
-            <<abstract>>
-            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
-        }
+    class Ta {
+        <<SQLModel table>>
+        +int id
+        +str name
+        +str email
+        +Decimal hourly_rate
+        +float performance_rating
     }
 
-    namespace Strategies {
-        class ExperienceFirstStrategy {
-            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
-        }
-
-        class LeastLoadedStrategy {
-            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
-        }
-
-        class RoundRobinStrategy {
-            +rank(list candidates, int course_id, set experience_pairs, dict load_by_ta) list
-        }
+    class Course {
+        <<SQLModel table>>
+        +int id
+        +str code
+        +str title
+        +int budgeted_hours
     }
 
-    User "1" --> "0..1" Ta : maps by role and email
-    Ta "1" --> "0..*" Assignment : receives
-    Course "1" --> "0..*" Assignment : receives
-    Department "1" --> "0..*" Assignment : constrains through budget
+    class Department {
+        <<SQLModel table>>
+        +int id = 1
+        +int budget_hours_remaining
+        +int round_robin_cursor
+    }
 
-    Ta "1" --> "0..*" TaExperience : has
-    Course "1" --> "0..*" TaExperience : prefers
+    class Assignment {
+        <<SQLModel table>>
+        +int id
+        +int ta_id
+        +int course_id
+        +int weekly_hours
+        +int start_week
+        +int end_week
+        +str created_at
+    }
 
-    AllocationOperations ..> CapacityGuard : enforces hard limits
-    AllocationOperations ..> RankingStrategy : selects ranking policy
-    AllocationOperations --> "0..*" Assignment : creates or edits
-    AllocationOperations --> "0..*" Department : updates remaining budget
-    AllocationOperations --> "0..*" Ta : evaluates eligible candidates
-    AllocationOperations --> "0..*" Course : allocates for
+    class TaExperience {
+        <<SQLModel table>>
+        +int id
+        +int ta_id
+        +int course_id
+    }
 
-    RankingStrategy <|-- ExperienceFirstStrategy : implements
-    RankingStrategy <|-- LeastLoadedStrategy : implements
-    RankingStrategy <|-- RoundRobinStrategy : implements
+    class AllocationService {
+        <<service module>>
+        +assign_manual(...) dict
+        +assign_auto(...) dict
+        +suggest_auto(...) dict
+        +edit_assignment(...) dict
+        +end_assignment(...) dict
+    }
+
+    class CapacityGuard {
+        <<service>>
+        +validate_request(...) void
+        +validate_ta(...) void
+        +eligible_candidates(...) list~dict~
+    }
+
+    class RankingStrategy {
+        <<abstract service>>
+        +rank(candidates, course_id, experience_pairs, load_by_ta) list~dict~
+    }
+
+    class ExperienceFirstStrategy {
+        <<strategy>>
+        +rank(...) list~dict~
+    }
+
+    class LeastLoadedStrategy {
+        <<strategy>>
+        +rank(...) list~dict~
+    }
+
+    class RoundRobinStrategy {
+        <<strategy>>
+        +rank(...) list~dict~
+    }
+
+    Ta "1" --> "0..*" Assignment
+    Course "1" --> "0..*" Assignment
+    Department "1" ..> "0..*" Assignment
+
+    Ta "1" --> "0..*" TaExperience
+    Course "1" --> "0..*" TaExperience
+
+    User "0..*" ..> Ta
+    User "0..*" ..> Department
+
+    AllocationService ..> CapacityGuard
+    AllocationService ..> RankingStrategy
+    AllocationService --> "0..*" Assignment
+    AllocationService --> "1" Department
+    AllocationService --> "0..*" Ta
+    AllocationService --> "0..*" Course
+
+    RankingStrategy <|-- ExperienceFirstStrategy
+    RankingStrategy <|-- LeastLoadedStrategy
+    RankingStrategy <|-- RoundRobinStrategy
+
+    note for User "role values represent HOD, Deputy, and TA access"
